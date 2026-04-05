@@ -10,6 +10,10 @@ export interface User {
   collegeCode: string
   branch?: string
   year?: string
+  campusId?: string
+  emailVerified: boolean
+  studentVerified: boolean  // ← added
+  googleId?: string
 }
 
 interface SignupData {
@@ -24,10 +28,11 @@ interface SignupData {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<any>  // ← returns data now
   loginWithGoogle: (user: User, token: string) => void
-  signup: (userData: SignupData) => Promise<void>
+  signup: (userData: SignupData) => Promise<any>            // ← returns data now
   logout: () => void
+  updateUser: (updates: Partial<User>) => void
 }
 
 /* ── CONTEXT ── */
@@ -60,17 +65,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true)
 
   /* ---------- REHYDRATE ON MOUNT ---------- */
-
   useEffect(() => {
     const storedUser = localStorage.getItem("user")
     const token = localStorage.getItem("token")
 
     if (storedUser && token) {
       try {
-        setUser(JSON.parse(storedUser))
+        const parsedUser = JSON.parse(storedUser)
+        setUser(parsedUser)
         setAxiosToken(token)
       } catch {
-        // corrupted storage — clear it
         localStorage.removeItem("user")
         localStorage.removeItem("token")
       }
@@ -80,16 +84,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [])
 
   /* ---------- EMAIL LOGIN ---------- */
-
   const login = async (email: string, password: string) => {
     setIsLoading(true)
+
     try {
       const res = await axios.post(`${API}/login`, { email, password })
       const { user, token } = res.data
+
       setUser(user)
       localStorage.setItem("user", JSON.stringify(user))
       localStorage.setItem("token", token)
       setAxiosToken(token)
+
+      return res.data  // ← LoginPage needs this to check needsCampusSelection
+
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Login failed")
     } finally {
@@ -98,25 +106,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   /* ---------- GOOGLE LOGIN ---------- */
-
   const loginWithGoogle = (user: User, token: string) => {
     setUser(user)
     localStorage.setItem("user", JSON.stringify(user))
     localStorage.setItem("token", token)
-    setAxiosToken(token)
+    setAxiosToken(token)  // ← was already here, but now confirmed runs BEFORE navigate
   }
 
   /* ---------- SIGNUP ---------- */
-
   const signup = async (userData: SignupData) => {
     setIsLoading(true)
+
     try {
       const res = await axios.post(`${API}/signup`, userData)
       const { user, token } = res.data
+
       setUser(user)
       localStorage.setItem("user", JSON.stringify(user))
       localStorage.setItem("token", token)
       setAxiosToken(token)
+
+      return res.data  // ← return so SignupPage can also check needsCampusSelection
+
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Signup failed")
     } finally {
@@ -124,8 +135,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  /* ---------- LOGOUT ---------- */
+  /* ---------- UPDATE USER ---------- */
+  const updateUser = (updates: Partial<User>) => {
+    setUser(prev => {
+      if (!prev) return prev
 
+      const updatedUser = { ...prev, ...updates }
+      localStorage.setItem("user", JSON.stringify(updatedUser))
+
+      return updatedUser
+    })
+  }
+
+  /* ---------- LOGOUT ---------- */
   const logout = () => {
     setUser(null)
     localStorage.removeItem("user")
@@ -134,7 +156,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, login, loginWithGoogle, signup, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        isLoading,
+        login,
+        loginWithGoogle,
+        signup,
+        logout,
+        updateUser
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

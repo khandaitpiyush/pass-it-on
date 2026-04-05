@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getMockItems } from '../utils/mockData';
+import axios from 'axios';
 import {
   ArrowLeft,
   MessageCircle,
@@ -10,29 +10,106 @@ import {
   MapPin,
   Calendar,
   Tag,
-  CheckCircle,
-  Clock,
-  Info
+  Package,
+  Trash2,
 } from 'lucide-react';
+
+const API = 'http://localhost:5000/api';
+
+interface Listing {
+  _id: string;
+  title: string;
+  description: string;
+  price: number;
+  condition: string;
+  category?: string;
+  semester?: string;
+  image?: string;
+  createdAt: string;
+  seller: {
+    _id: string;
+    name: string;
+    studentVerified: boolean;
+    branch?: string;
+    year?: string;
+  };
+}
 
 export default function ItemDetailPage() {
   const { itemId } = useParams<{ itemId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [selectedImage, setSelectedImage] = useState(0);
 
-  if (!user || !itemId) return null;
+  const [listing, setListing] = useState<Listing | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState('');
 
-  const item = getMockItems(user.collegeCode).find((i) => i.id === itemId);
+  useEffect(() => {
+    const fetchListing = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get(`${API}/listings/${itemId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setListing(res.data);
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          setNotFound(true);
+        } else {
+          setError('Failed to load listing.');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  if (!item) {
+    if (itemId) fetchListing();
+  }, [itemId]);
+
+  if (!user) return null;
+
+  /* ---------- LOADING ---------- */
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-white border-b">
+          <div className="max-w-7xl mx-auto px-4 py-4">
+            <Link to="/browse" className="inline-flex items-center gap-2 text-gray-600">
+              <ArrowLeft className="w-5 h-5" />
+              Back to Browse
+            </Link>
+          </div>
+        </div>
+        <div className="max-w-7xl mx-auto px-4 py-8">
+          <div className="grid lg:grid-cols-2 gap-8 animate-pulse">
+            <div className="aspect-square bg-gray-200 rounded-xl" />
+            <div className="space-y-4">
+              <div className="h-8 bg-gray-200 rounded w-3/4" />
+              <div className="h-8 bg-gray-200 rounded w-1/4" />
+              <div className="h-24 bg-gray-200 rounded" />
+              <div className="h-12 bg-gray-200 rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ---------- NOT FOUND ---------- */
+  if (notFound || !listing) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
+          <Package className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             Item not found
           </h2>
-          <Link to="/browse" className="text-green-600 hover:text-green-700">
+          <p className="text-gray-500 text-sm mb-4">
+            This listing may have been deleted.
+          </p>
+          <Link to="/browse" className="text-green-600 font-medium hover:underline">
             Back to Browse
           </Link>
         </div>
@@ -40,43 +117,58 @@ export default function ItemDetailPage() {
     );
   }
 
-  const isOwnItem = item.sellerId === user.userId;
-  const status = item.status; // ✅ single source of truth
+  /* ---------- ERROR ---------- */
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-500 text-sm mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="text-green-600 font-medium hover:underline text-sm"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
 
-  const handleChatWithSeller = () => {
-    navigate('/chat/chat1');
+  const isOwnListing = listing.seller._id === user._id;
+
+  const handleDelete = async () => {
+    const confirmed = window.confirm(
+      'Are you sure you want to delete this listing?'
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${API}/listings/${listing._id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      navigate('/my-listings');
+    } catch (err: any) {
+      alert(err?.response?.data?.message || 'Failed to delete listing.');
+      setIsDeleting(false);
+    }
   };
 
-  const statusBadge = () => {
-    if (status === 'available') {
-      return (
-        <span className="px-3 py-1 rounded-full text-sm bg-green-100 text-green-800">
-          Available
-        </span>
-      );
-    }
-    if (status === 'reserved') {
-      return (
-        <span className="px-3 py-1 rounded-full text-sm bg-yellow-100 text-yellow-800">
-          Reserved
-        </span>
-      );
-    }
-    return (
-      <span className="px-3 py-1 rounded-full text-sm bg-red-100 text-red-800">
-        Sold
-      </span>
-    );
+  const handleChatWithSeller = () => {
+    // Chat feature — navigate to chat with seller context
+    navigate(`/chat/${listing.seller._id}`);
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
+
       {/* Header */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 py-4">
           <Link
             to="/browse"
-            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900"
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 text-sm"
           >
             <ArrowLeft className="w-5 h-5" />
             Back to Browse
@@ -86,39 +178,29 @@ export default function ItemDetailPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
         <div className="grid lg:grid-cols-2 gap-8">
-          {/* Images */}
+
+          {/* Image */}
           <div>
-            <div className="bg-white rounded-lg border overflow-hidden mb-4">
+            <div className="bg-white rounded-xl border overflow-hidden mb-4">
               <div className="aspect-square bg-gray-100">
-                <img
-                  src={item.images[selectedImage]}
-                  alt={item.title}
-                  className="w-full h-full object-cover"
-                />
+                {listing.image ? (
+                  <img
+                    src={listing.image}
+                    alt={listing.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center">
+                    <Package className="w-16 h-16 text-gray-300" />
+                  </div>
+                )}
               </div>
             </div>
 
-            {item.images.length > 1 && (
-              <div className="grid grid-cols-4 gap-2">
-                {item.images.map((image, index) => (
-                  <button
-                    key={index}
-                    onClick={() => setSelectedImage(index)}
-                    className={`aspect-square rounded-lg overflow-hidden border-2 ${
-                      selectedImage === index
-                        ? 'border-green-600'
-                        : 'border-gray-200'
-                    }`}
-                  >
-                    <img src={image} alt="" className="w-full h-full object-cover" />
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
+            {/* Safety notice */}
+            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
               <div className="flex items-start gap-3">
-                <MapPin className="w-5 h-5 text-green-600 mt-0.5" />
+                <MapPin className="w-5 h-5 text-green-600 mt-0.5 shrink-0" />
                 <div>
                   <h3 className="font-semibold text-green-900 text-sm mb-1">
                     Meet on Campus for Safe Exchange
@@ -133,126 +215,140 @@ export default function ItemDetailPage() {
           </div>
 
           {/* Details */}
-          <div>
-            <div className="bg-white rounded-lg border p-6 mb-6">
-              <div className="flex items-start justify-between mb-4">
-                <h1 className="text-3xl font-bold text-gray-900">
-                  {item.title}
-                </h1>
-                {statusBadge()}
-              </div>
+          <div className="space-y-4">
 
+            {/* Main card */}
+            <div className="bg-white rounded-xl border p-6">
+
+              {/* Title + price */}
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                {listing.title}
+              </h1>
               <p className="text-3xl font-bold text-gray-900 mb-6">
-                ₹{item.price}
+                ₹{listing.price}
               </p>
 
-              {/* 🟢 Layer 1: Gentle Seller Reminder */}
-              {isOwnItem && status !== 'sold' && (
-                <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 flex gap-3">
-                  <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+              {/* Condition + Category */}
+              <div className="grid grid-cols-2 gap-4 mb-6 pb-6 border-b">
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Condition</p>
+                  <span className="text-sm font-semibold bg-gray-100 px-2 py-1 rounded-full">
+                    {listing.condition}
+                  </span>
+                </div>
+                {listing.category && (
                   <div>
-                    <p className="text-sm font-medium text-blue-900">
-                      Have you sold this item?
-                    </p>
-                    <p className="text-sm text-blue-800">
-                      Mark it as <strong>Sold</strong> to keep the marketplace
-                      clean.
-                    </p>
+                    <p className="text-xs text-gray-500 mb-1">Category</p>
+                    <span className="text-sm font-semibold bg-gray-100 px-2 py-1 rounded-full">
+                      {listing.category}
+                    </span>
                   </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4 mb-6 border-b pb-6">
-                <div>
-                  <p className="text-sm text-gray-600">Condition</p>
-                  <p className="font-semibold">{item.condition}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Category</p>
-                  <p className="font-semibold">{item.category}</p>
-                </div>
-              </div>
-
-              <div className="mb-6 border-b pb-6">
-                <h2 className="font-semibold mb-2">Description</h2>
-                <p className="text-gray-700">{item.description}</p>
-              </div>
-
-              <div className="mb-6">
-                <h2 className="font-semibold mb-3">Seller Information</h2>
-                <div className="flex gap-4">
-                  <img
-                    src={item.sellerAvatar}
-                    className="w-12 h-12 rounded-full"
-                  />
+                )}
+                {listing.semester && (
                   <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold">{item.sellerName}</p>
-                      {item.sellerVerified ? (
-                        <span className="flex items-center gap-1 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
+                    <p className="text-xs text-gray-500 mb-1">Semester</p>
+                    <span className="text-sm font-semibold bg-gray-100 px-2 py-1 rounded-full">
+                      {listing.semester}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Description */}
+              <div className="mb-6 pb-6 border-b">
+                <h2 className="font-semibold text-gray-900 mb-2">Description</h2>
+                <p className="text-gray-600 text-sm leading-relaxed">
+                  {listing.description}
+                </p>
+              </div>
+
+              {/* Seller info */}
+              <div className="mb-6">
+                <h2 className="font-semibold text-gray-900 mb-3">
+                  Seller Information
+                </h2>
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+                    <span className="text-lg font-bold text-green-700">
+                      {listing.seller.name.charAt(0).toUpperCase()}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-semibold text-gray-900">
+                        {listing.seller.name}
+                      </p>
+                      {listing.seller.studentVerified ? (
+                        <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full">
                           <ShieldCheck className="w-3 h-3" />
                           Verified
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                        <span className="inline-flex items-center gap-1 text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
                           <ShieldAlert className="w-3 h-3" />
                           Unverified
                         </span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-600">
-                      {item.sellerBranch} • {item.sellerYear}
-                    </p>
+                    {(listing.seller.branch || listing.seller.year) && (
+                      <p className="text-sm text-gray-500">
+                        {[listing.seller.branch, listing.seller.year]
+                          .filter(Boolean)
+                          .join(' • ')}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* CTA / Seller Controls */}
-              {!isOwnItem && status !== 'sold' && (
+              {/* CTA */}
+              {!isOwnListing && (
                 <button
                   onClick={handleChatWithSeller}
-                  className="w-full py-3 bg-green-600 text-white rounded-lg flex items-center justify-center gap-2 font-semibold"
+                  className="w-full py-3 bg-green-600 text-white rounded-xl flex items-center justify-center gap-2 font-semibold hover:bg-green-700 transition"
                 >
                   <MessageCircle className="w-5 h-5" />
                   Chat with Seller
                 </button>
               )}
 
-              {!isOwnItem && status === 'sold' && (
-                <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center text-red-700">
-                  This item has been sold
-                </div>
-              )}
-
-              {isOwnItem && (
+              {/* Owner controls */}
+              {isOwnListing && (
                 <div className="space-y-3">
-                  <p className="text-sm text-gray-600 text-center">
-                    Manage your listing
+                  <p className="text-sm text-gray-500 text-center">
+                    This is your listing
                   </p>
-                  <div className="flex gap-3">
-                    <button className="flex-1 py-2 border rounded-lg flex items-center justify-center gap-2">
-                      <Clock className="w-4 h-4" />
-                      Mark Reserved
-                    </button>
-                    <button className="flex-1 py-2 bg-red-600 text-white rounded-lg flex items-center justify-center gap-2">
-                      <CheckCircle className="w-4 h-4" />
-                      Mark Sold
-                    </button>
-                  </div>
+                  <button
+                    onClick={handleDelete}
+                    disabled={isDeleting}
+                    className="w-full py-3 border border-red-300 text-red-600 rounded-xl flex items-center justify-center gap-2 text-sm font-medium hover:bg-red-50 disabled:opacity-50 transition"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {isDeleting ? 'Deleting...' : 'Delete Listing'}
+                  </button>
                 </div>
               )}
             </div>
 
-            <div className="bg-white rounded-lg border p-6">
-              <div className="flex items-center gap-2 text-sm text-gray-600">
-                <Tag className="w-4 h-4" />
-                Category: {item.category}
-              </div>
-              <div className="flex items-center gap-2 text-sm text-gray-600 mt-2">
+            {/* Meta */}
+            <div className="bg-white rounded-xl border p-4 space-y-2">
+              {listing.category && (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Tag className="w-4 h-4" />
+                  {listing.category}
+                </div>
+              )}
+              <div className="flex items-center gap-2 text-sm text-gray-500">
                 <Calendar className="w-4 h-4" />
-                Posted {new Date(item.createdAt).toLocaleDateString()}
+                Posted{' '}
+                {new Date(listing.createdAt).toLocaleDateString('en-IN', {
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
               </div>
             </div>
+
           </div>
         </div>
       </div>

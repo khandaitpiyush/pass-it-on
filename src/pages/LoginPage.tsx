@@ -8,7 +8,7 @@ const API = "http://localhost:5000/api/auth"
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { login, loginWithGoogle } = useAuth()  // ← loginWithGoogle added
+  const { login, loginWithGoogle } = useAuth()
 
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -33,8 +33,15 @@ export default function LoginPage() {
     }
     setIsLoading(true)
     try {
-      await login(email, password)
-      navigate("/dashboard")
+      // Assuming your login context returns the backend response
+      const res = await login(email, password)
+      
+      // If the backend indicates campus selection is needed, or campusId is missing
+      if (res?.needsCampusSelection || (res?.user && !res?.user?.campusId)) {
+        navigate("/select-campus")
+      } else {
+        navigate("/dashboard")
+      }
     } catch (err: any) {
       setError(err?.response?.data?.message || err.message || "Login failed")
     } finally {
@@ -49,11 +56,23 @@ export default function LoginPage() {
       const res = await axios.post(`${API}/google-login`, {
         token: credentialResponse.credential,
       })
-      const { user, token } = res.data
-      loginWithGoogle(user, token)  // ← sets user in context immediately
-      navigate("/dashboard")        // ← now fires with user already set
-    } catch {
-      setError("Google login failed. Please try again.")
+      
+      // Extract the new flag from our updated backend
+      const { user, token, needsCampusSelection } = res.data
+      
+      // Update global auth state
+      loginWithGoogle(user, token)
+
+      // Conditional routing based on the backend's instruction
+      if (needsCampusSelection) {
+        navigate("/select-campus")
+      } else {
+        navigate("/dashboard")
+      }
+      
+    } catch (err: any) {
+      console.error("Google Login Error:", err)
+      setError(err?.response?.data?.message || "Google login failed. Please try again.")
     }
   }
 
@@ -368,7 +387,7 @@ export default function LoginPage() {
               <div className="stat"><span className="stat-number">50+</span><span className="stat-label">Colleges</span></div>
             </div>
           </div>
-          <div className="left-footer">© 2025 PassItOn · All rights reserved</div>
+          <div className="left-footer">© 2026 PassItOn · All rights reserved</div>
         </div>
 
         {/* RIGHT PANEL */}

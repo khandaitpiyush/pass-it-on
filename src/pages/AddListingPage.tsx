@@ -1,96 +1,187 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { CATEGORIES, SEMESTERS } from '../utils/mockData';
-import { ArrowLeft, Upload, ShieldAlert, CheckCircle, X } from 'lucide-react';
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
+import axios from "axios";
+import { ArrowLeft, Upload, X, ShieldAlert } from "lucide-react";
+
+const API = "http://localhost:5000/api";
+
+const CATEGORIES = [
+  "Textbooks",
+  "Notes",
+  "Lab Equipment",
+  "Electronics",
+  "Stationery",
+  "Other",
+];
+
+const SEMESTERS = [
+  "Semester 1",
+  "Semester 2",
+  "Semester 3",
+  "Semester 4",
+  "Semester 5",
+  "Semester 6",
+  "Semester 7",
+  "Semester 8",
+];
 
 export default function AddListingPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+
   const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    price: '',
-    category: '',
-    condition: '',
-    semester: ''
+    title: "",
+    description: "",
+    price: "",
+    category: "",
+    condition: "",
+    semester: "",
   });
+
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showVerificationPrompt, setShowVerificationPrompt] = useState(false);
+  const [error, setError] = useState("");
 
   if (!user) return null;
 
+  // Hard gate — only studentVerified users can sell
+  if (!user.studentVerified) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+        <div className="bg-white border rounded-xl p-8 max-w-md w-full text-center">
+          <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <ShieldAlert className="w-8 h-8 text-amber-600" />
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">
+            Verified Students Only
+          </h2>
+          <p className="text-gray-500 text-sm mb-6">
+            Only students with a verified college email can list items for sale.
+            Verify your college email to start selling.
+          </p>
+          <div className="flex flex-col gap-3">
+            <Link
+              to="/profile"
+              className="w-full py-2.5 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition"
+            >
+              Verify College Email
+            </Link>
+            <Link
+              to="/browse"
+              className="w-full py-2.5 border border-gray-300 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-50 transition"
+            >
+              Browse Items Instead
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setImagePreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+
+    // Basic size check — 10MB limit
+    if (file.size > 10 * 1024 * 1024) {
+      setError("Image must be under 10MB.");
+      return;
     }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Check if user is verified
-    if (!user.isVerified) {
-      setShowVerificationPrompt(true);
-      return;
-    }
+    setError("");
+
+    if (!isFormValid) return;
 
     setIsSubmitting(true);
-    
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // In production, this would upload the image and create the listing
-    setIsSubmitting(false);
-    navigate('/my-listings');
+
+    try {
+      const token = localStorage.getItem("token");
+
+      await axios.post(
+        `${API}/listings`,
+        {
+          title: formData.title,
+          description: formData.description,
+          price: Number(formData.price),
+          category: formData.category,
+          condition: formData.condition,
+          semester: formData.semester,
+          image: imagePreview, // base64 string for now
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      navigate("/my-listings");
+
+    } catch (err: any) {
+      setError(
+        err?.response?.data?.message || "Failed to publish listing. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const isFormValid = formData.title && formData.description && formData.price && 
-                      formData.category && formData.condition && imagePreview;
+  const isFormValid =
+    formData.title.trim() &&
+    formData.description.trim() &&
+    formData.price &&
+    Number(formData.price) > 0 &&
+    formData.category &&
+    formData.condition &&
+    imagePreview;
 
   return (
     <div className="min-h-screen bg-gray-50">
+
       {/* Header */}
       <div className="bg-white border-b">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <Link to="/dashboard" className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4">
-            <ArrowLeft className="w-5 h-5" />
-            Back
+        <div className="max-w-3xl mx-auto px-4 py-4">
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 text-gray-600 hover:text-gray-900 mb-4 text-sm"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back to Dashboard
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">List an Item</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Your listing will be visible only to students on your campus.
+          </p>
         </div>
       </div>
 
-      {/* Verification Warning for Unverified Users */}
-      {!user.isVerified && (
-        <div className="bg-amber-50 border-b border-amber-200">
-          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div className="flex items-start gap-3">
-              <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-sm font-semibold text-amber-900">Verification Required</h3>
-                <p className="text-sm text-amber-800 mt-1">
-                  You need to verify your college email to list items for sale. This ensures trust and safety in our campus community.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <div className="max-w-3xl mx-auto px-4 py-8">
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border p-6 space-y-6">
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <form onSubmit={handleSubmit} className="bg-white rounded-lg border p-6">
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-3 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <X className="w-4 h-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
           {/* Image Upload */}
-          <div className="mb-6">
+          <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Item Photo *
+              Item Photo <span className="text-red-500">*</span>
             </label>
+
             {imagePreview ? (
               <div className="relative">
                 <img
@@ -101,16 +192,18 @@ export default function AddListingPage() {
                 <button
                   type="button"
                   onClick={() => setImagePreview(null)}
-                  className="absolute top-2 right-2 p-2 bg-white rounded-full shadow-lg hover:bg-gray-100"
+                  className="absolute top-2 right-2 p-1.5 bg-white rounded-full shadow-md hover:bg-gray-100 transition"
                 >
-                  <X className="w-5 h-5 text-gray-600" />
+                  <X className="w-4 h-4 text-gray-600" />
                 </button>
               </div>
             ) : (
-              <label className="flex flex-col items-center justify-center w-full h-64 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-green-500 transition-colors">
-                <Upload className="w-12 h-12 text-gray-400 mb-2" />
-                <p className="text-sm text-gray-600 mb-1">Click to upload image</p>
-                <p className="text-xs text-gray-500">PNG, JPG up to 10MB</p>
+              <label className="flex flex-col items-center justify-center w-full h-56 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors">
+                <Upload className="w-10 h-10 text-gray-400 mb-2" />
+                <p className="text-sm font-medium text-gray-600">
+                  Click to upload photo
+                </p>
+                <p className="text-xs text-gray-400 mt-1">PNG, JPG up to 10MB</p>
                 <input
                   type="file"
                   accept="image/*"
@@ -122,81 +215,74 @@ export default function AddListingPage() {
           </div>
 
           {/* Title */}
-          <div className="mb-6">
-            <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-2">
-              Item Title *
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Item Title <span className="text-red-500">*</span>
             </label>
             <input
-              id="title"
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               placeholder="e.g., Engineering Mathematics III Textbook"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
             />
           </div>
 
           {/* Description */}
-          <div className="mb-6">
-            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-              Description *
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Description <span className="text-red-500">*</span>
             </label>
             <textarea
-              id="description"
+              rows={4}
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Describe the item's condition, usage, and any other relevant details..."
-              rows={5}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none"
+              placeholder="Describe the item's condition, edition, any markings..."
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none resize-none text-sm"
             />
           </div>
 
           {/* Price */}
-          <div className="mb-6">
-            <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-2">
-              Price (₹) *
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Price (₹) <span className="text-red-500">*</span>
             </label>
             <input
-              id="price"
               type="number"
+              min="1"
               value={formData.price}
               onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              placeholder="250"
-              min="0"
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              placeholder="e.g., 250"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
             />
           </div>
 
-          {/* Category and Condition */}
-          <div className="grid md:grid-cols-2 gap-6 mb-6">
+          {/* Category + Condition */}
+          <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
-                Category *
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Category <span className="text-red-500">*</span>
               </label>
               <select
-                id="category"
                 value={formData.category}
                 onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
               >
                 <option value="">Select category</option>
-                {CATEGORIES.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
+                {CATEGORIES.map((cat) => (
+                  <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
             </div>
 
             <div>
-              <label htmlFor="condition" className="block text-sm font-medium text-gray-700 mb-2">
-                Condition *
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Condition <span className="text-red-500">*</span>
               </label>
               <select
-                id="condition"
                 value={formData.condition}
                 onChange={(e) => setFormData({ ...formData, condition: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
               >
                 <option value="">Select condition</option>
                 <option value="Like New">Like New</option>
@@ -207,76 +293,44 @@ export default function AddListingPage() {
             </div>
           </div>
 
-          {/* Semester (Optional) */}
-          <div className="mb-6">
-            <label htmlFor="semester" className="block text-sm font-medium text-gray-700 mb-2">
-              Semester (Optional)
+          {/* Semester (optional) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Semester{" "}
+              <span className="text-gray-400 font-normal">(optional)</span>
             </label>
             <select
-              id="semester"
               value={formData.semester}
               onChange={(e) => setFormData({ ...formData, semester: e.target.value })}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-transparent"
+              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none text-sm"
             >
-              <option value="">Select semester (if applicable)</option>
+              <option value="">Not applicable</option>
               {SEMESTERS.map((sem) => (
-                <option key={sem} value={sem}>
-                  {sem}
-                </option>
+                <option key={sem} value={sem}>{sem}</option>
               ))}
             </select>
           </div>
 
-          {/* Submit Button */}
-          <div className="flex gap-4">
+          {/* Buttons */}
+          <div className="flex gap-4 pt-2">
             <button
               type="button"
               onClick={() => navigate(-1)}
-              className="flex-1 py-3 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+              className="flex-1 py-3 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={!isFormValid || !user.isVerified || isSubmitting}
-              className="flex-1 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!isFormValid || isSubmitting}
+              className="flex-1 py-3 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
             >
-              {isSubmitting ? 'Publishing...' : 'Publish Listing'}
+              {isSubmitting ? "Publishing..." : "Publish Listing"}
             </button>
           </div>
+
         </form>
       </div>
-
-      {/* Verification Prompt Modal */}
-      {showVerificationPrompt && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg max-w-md w-full p-6">
-            <div className="flex items-center justify-center w-12 h-12 bg-amber-100 rounded-full mx-auto mb-4">
-              <ShieldAlert className="w-6 h-6 text-amber-600" />
-            </div>
-            <h3 className="text-xl font-bold text-gray-900 text-center mb-2">
-              Verification Required
-            </h3>
-            <p className="text-gray-600 text-center mb-6">
-              To list items for sale, you need to verify your college email address. This helps maintain trust and safety in our campus community.
-            </p>
-            <div className="space-y-3">
-              <button
-                onClick={() => setShowVerificationPrompt(false)}
-                className="w-full py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-              >
-                Got it
-              </button>
-              <button
-                onClick={() => setShowVerificationPrompt(false)}
-                className="w-full py-2.5 text-gray-600 hover:text-gray-900 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
