@@ -1,7 +1,4 @@
 // utils/emailHelper.ts
-// Industry-standard email sender using Brevo (formerly Sendinblue) REST API
-// No SDK dependency — uses native fetch for zero-bloat integration
-
 interface SendEmailOptions {
   to: string;
   toName?: string;
@@ -18,14 +15,10 @@ interface BrevoEmailPayload {
   textContent?: string;
 }
 
-/**
- * Sends a transactional email via Brevo REST API.
- * Throws on non-2xx responses so callers can catch and handle errors.
- */
 export async function sendEmail(options: SendEmailOptions): Promise<void> {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || 'CampusCart';
+  const senderName = process.env.BREVO_SENDER_NAME || 'PassItOn'; // ← changed
 
   if (!apiKey) throw new Error('BREVO_API_KEY is not configured.');
   if (!senderEmail) throw new Error('BREVO_SENDER_EMAIL is not configured.');
@@ -58,9 +51,6 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
   }
 }
 
-/**
- * Generates the branded HTML email for OTP verification.
- */
 export function buildOtpEmailHtml(otp: string, userName: string): string {
   return `
 <!DOCTYPE html>
@@ -77,19 +67,17 @@ export function buildOtpEmailHtml(otp: string, userName: string): string {
         <table width="520" cellpadding="0" cellspacing="0"
           style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-          <!-- Header -->
           <tr>
             <td style="background:linear-gradient(135deg,#16a34a,#15803d);padding:36px 40px;text-align:center;">
               <p style="margin:0;font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">
-                🎓 CampusCart
+                🎓 PassItOn
               </p>
               <p style="margin:8px 0 0;font-size:14px;color:rgba(255,255,255,0.85);">
-                Student Marketplace
+                Campus Marketplace
               </p>
             </td>
           </tr>
 
-          <!-- Body -->
           <tr>
             <td style="padding:40px 40px 32px;">
               <p style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">
@@ -97,10 +85,9 @@ export function buildOtpEmailHtml(otp: string, userName: string): string {
               </p>
               <p style="margin:0 0 28px;font-size:15px;color:#6b7280;line-height:1.6;">
                 Hi <strong>${userName}</strong>, use the code below to verify your college email
-                and unlock seller privileges on CampusCart.
+                and unlock seller privileges on PassItOn.
               </p>
 
-              <!-- OTP Box -->
               <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;
                           padding:28px;text-align:center;margin-bottom:28px;">
                 <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#16a34a;
@@ -123,12 +110,11 @@ export function buildOtpEmailHtml(otp: string, userName: string): string {
             </td>
           </tr>
 
-          <!-- Footer -->
           <tr>
             <td style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:20px 40px;
                        text-align:center;">
               <p style="margin:0;font-size:12px;color:#9ca3af;">
-                © ${new Date().getFullYear()} CampusCart · Built for students, by students
+                © ${new Date().getFullYear()} PassItOn · Campus marketplace for students
               </p>
             </td>
           </tr>
