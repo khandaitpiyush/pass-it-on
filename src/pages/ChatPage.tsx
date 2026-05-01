@@ -1,107 +1,130 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { getMockChats, Message } from '../utils/mockData';
-import {
-  ArrowLeft,
-  Send,
-  Info,
-  CheckCircle,
-  XCircle
-} from 'lucide-react';
+import { ArrowLeft, Send, Info, Package } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
+const SOCKET_URL = 'http://localhost:5000';
+
+interface Message {
+  id: string;
+  senderId: string;
+  text: string;
+  timestamp: string;
+}
+
 export default function ChatPage() {
-  const { chatId } = useParams<{ chatId: string }>();
+  // sellerId comes from /chat/:sellerId (set when buyer clicks "Chat with Seller")
+  const { sellerId } = useParams<{ sellerId: string }>();
   const { user } = useAuth();
-  const [message, setMessage] = useState('');
+  const navigate = useNavigate();
+
   const [messages, setMessages] = useState<Message[]>([]);
-  const [buyerResponse, setBuyerResponse] = useState<'yes' | 'no' | null>(null);
+  const [message, setMessage] = useState('');
+  const [isConnected, setIsConnected] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<Socket | null>(null);
 
-  if (!user || !chatId) return null;
-
-  const chat = getMockChats(user.userId, user.collegeCode).find(
-    (c) => c.id === chatId
-  );
-
-  if (!chat) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h2 className="text-2xl font-bold mb-2">Chat not found</h2>
-          <Link to="/dashboard" className="text-green-600">
-            Back to Dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
-  const isBuyer = chat.participantId !== user.userId;
-
-  const initialMessages: Message[] = [
-    {
-      id: '1',
-      chatId,
-      senderId: chat.participantId,
-      text: 'Hi! Is this item still available?',
-      timestamp: '2026-01-18T10:00:00Z'
-    },
-    {
-      id: '2',
-      chatId,
-      senderId: user.userId,
-      text: 'Yes, it is! Are you interested?',
-      timestamp: '2026-01-18T10:05:00Z'
-    },
-    {
-      id: '3',
-      chatId,
-      senderId: chat.participantId,
-      text: 'Yes, can we meet at the library tomorrow?',
-      timestamp: '2026-01-18T10:10:00Z'
-    },
-    {
-      id: '4',
-      chatId,
-      senderId: user.userId,
-      text: 'Sure! 2 PM at the main entrance?',
-      timestamp: '2026-01-18T14:15:00Z'
-    }
-  ];
+  // Room ID is deterministic — same two users always get the same room
+  // regardless of who initiates. Sorting ensures buyer/seller get same string.
+  const roomId =
+    user && sellerId
+      ? [user._id, sellerId].sort().join('_')
+      : null;
 
   useEffect(() => {
-    setMessages(initialMessages);
+    if (!roomId) return;
 
-    socketRef.current = io('http://localhost:3001', {
-      autoConnect: false
+    // Connect socket
+    socketRef.current = io(SOCKET_URL, { transports: ['websocket'] });
+
+    socketRef.current.on('connect', () => {
+      setIsConnected(true);
+      socketRef.current?.emit('join_room', roomId);
+    });
+
+    socketRef.current.on('disconnect', () => {
+      setIsConnected(false);
+    });
+
+    // Receive messages from the other user
+    socketRef.current.on('receive_message', (data: Message) => {
+      setMessages((prev) => {
+        // Avoid duplicates — our own sent messages are added optimistically
+        if (prev.find((m) => m.id === data.id)) return prev;
+        return [...prev, data];
+      });
     });
 
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [chatId]);
+  }, [roomId]);
 
+  // Auto scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  if (!user) return null;
+
+  // /chat with no sellerId — show empty state
+  if (!sellerId) {
+    return (
+      <div className="h-screen bg-gray-50 flex flex-col">
+        <div className="bg-white border-b">
+          <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-4">
+            <Link to="/dashboard">
+              <ArrowLeft className="w-6 h-6 text-gray-600" />
+            </Link>
+            <h2 className="font-semibold text-gray-900">Chats</h2>
+          </div>
+        </div>
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+            <p className="text-gray-500 font-medium">No chat selected</p>
+            <p className="text-sm text-gray-400 mt-1">
+              Find an item and tap "Chat with Seller" to start a conversation.
+            </p>
+            <Link
+              to="/browse"
+              className="mt-4 inline-block text-sm text-green-600 font-medium hover:underline"
+            >
+              Browse Items →
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Chatting with yourself
+  if (sellerId === user._id) {
+    navigate('/browse');
+    return null;
+  }
+
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || !roomId) return;
 
-    setMessages([
-      ...messages,
-      {
-        id: Date.now().toString(),
-        chatId,
-        senderId: user.userId,
-        text: message.trim(),
-        timestamp: new Date().toISOString()
-      }
-    ]);
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      senderId: user._id,
+      text: message.trim(),
+      timestamp: new Date().toISOString(),
+    };
+
+    // Optimistic update — add to UI immediately
+    setMessages((prev) => [...prev, newMessage]);
+
+    // Emit to room
+    socketRef.current?.emit('send_message', {
+      ...newMessage,
+      roomId,
+    });
 
     setMessage('');
   };
@@ -109,118 +132,81 @@ export default function ChatPage() {
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const diff = Date.now() - date.getTime();
-    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
 
-    if (hours < 1) return `${Math.floor(diff / (1000 * 60))}m ago`;
+    if (mins < 1) return 'Just now';
+    if (mins < 60) return `${mins}m ago`;
     if (hours < 24) return `${hours}h ago`;
-    return date.toLocaleDateString();
+    return date.toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+    });
   };
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col">
+
       {/* Header */}
       <div className="bg-white border-b flex-shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center gap-4">
-          <Link to="/dashboard">
-            <ArrowLeft className="w-6 h-6 text-gray-600" />
+          <Link to="/browse" className="text-gray-600 hover:text-gray-900">
+            <ArrowLeft className="w-6 h-6" />
           </Link>
-          <img
-            src={chat.participantAvatar}
-            className="w-10 h-10 rounded-full"
-          />
-          <div>
-            <h2 className="font-semibold text-gray-900">
-              {chat.participantName}
-            </h2>
-            <p className="text-sm text-gray-600">{user.collegeName}</p>
-          </div>
-        </div>
-      </div>
 
-      {/* Item Context */}
-      <div className="bg-green-50 border-b flex-shrink-0">
-        <div className="max-w-4xl mx-auto px-4 py-3 flex items-center gap-3">
-          <img
-            src={chat.itemImage}
-            className="w-12 h-12 rounded-lg object-cover"
-          />
+          {/* Seller avatar — initial letter */}
+          <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
+            <span className="text-sm font-bold text-green-700">
+              {sellerId.charAt(0).toUpperCase()}
+            </span>
+          </div>
+
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">
-              {chat.itemTitle}
+            <h2 className="font-semibold text-gray-900">Seller</h2>
+            <p className="text-xs text-gray-500 flex items-center gap-1">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isConnected ? 'bg-green-500' : 'bg-gray-300'
+                }`}
+              />
+              {isConnected ? 'Connected' : 'Connecting...'}
             </p>
-            <p className="text-sm text-gray-600">₹{chat.itemPrice}</p>
           </div>
-          <Link
-            to={`/item/${chat.itemId}`}
-            className="text-sm text-green-600 font-medium"
-          >
-            View Item
-          </Link>
         </div>
       </div>
-
-      {/* 🟡 Buyer Confirmation Prompt */}
-      {isBuyer && buyerResponse === null && (
-        <div className="bg-yellow-50 border-b border-yellow-200 flex-shrink-0">
-          <div className="max-w-4xl mx-auto px-4 py-3">
-            <p className="text-sm font-medium mb-2">
-              Did you complete this purchase?
-            </p>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setBuyerResponse('yes')}
-                className="px-3 py-1.5 bg-green-600 text-white rounded-lg flex items-center gap-1 text-sm"
-              >
-                <CheckCircle className="w-4 h-4" />
-                Yes, I received it
-              </button>
-              <button
-                onClick={() => setBuyerResponse('no')}
-                className="px-3 py-1.5 border rounded-lg flex items-center gap-1 text-sm"
-              >
-                <XCircle className="w-4 h-4" />
-                Not yet
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {buyerResponse === 'yes' && (
-        <div className="bg-green-50 border-b border-green-200 px-4 py-2 text-sm text-green-800">
-          Thanks! We’ve notified the seller to update the item status.
-        </div>
-      )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto px-4 py-6 space-y-4">
-          {messages.map((msg) => {
-            const isOwn = msg.senderId === user.userId;
 
+          {/* First message prompt */}
+          {messages.length === 0 && (
+            <div className="text-center py-8">
+              <p className="text-sm text-gray-400">
+                Start the conversation — ask if the item is still available.
+              </p>
+            </div>
+          )}
+
+          {messages.map((msg) => {
+            const isOwn = msg.senderId === user._id;
             return (
               <div
                 key={msg.id}
                 className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}
               >
-                <div
-                  className={`max-w-xs lg:max-w-md ${
-                    isOwn ? 'order-2' : 'order-1'
-                  }`}
-                >
+                <div className="max-w-xs lg:max-w-md">
                   <div
-                    className={`px-4 py-2.5 rounded-2xl ${
+                    className={`px-4 py-2.5 rounded-2xl text-sm whitespace-pre-wrap break-words ${
                       isOwn
                         ? 'bg-green-600 text-white rounded-br-sm'
                         : 'bg-white border border-gray-200 text-gray-900 rounded-bl-sm'
                     }`}
                   >
-                    <p className="text-sm whitespace-pre-wrap break-words">
-                      {msg.text}
-                    </p>
+                    {msg.text}
                   </div>
                   <p
-                    className={`text-xs text-gray-500 mt-1 ${
+                    className={`text-xs text-gray-400 mt-1 ${
                       isOwn ? 'text-right' : 'text-left'
                     }`}
                   >
@@ -234,11 +220,11 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* Safety */}
+      {/* Safety notice */}
       <div className="bg-blue-50 border-t border-blue-200 flex-shrink-0">
         <div className="max-w-4xl mx-auto px-4 py-2 flex gap-2 text-sm text-blue-800">
-          <Info className="w-4 h-4 mt-0.5" />
-          Meet on campus. Avoid sharing personal contact details.
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          Meet on campus in public areas. Avoid sharing personal contact details.
         </div>
       </div>
 
@@ -252,18 +238,19 @@ export default function ChatPage() {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type your message..."
-            className="flex-1 px-4 py-2.5 border rounded-lg focus:ring-2 focus:ring-green-500"
+            className="flex-1 px-4 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 outline-none text-sm"
           />
           <button
             type="submit"
-            disabled={!message.trim()}
-            className="px-6 py-2.5 bg-green-600 text-white rounded-lg flex items-center gap-2 disabled:opacity-50"
+            disabled={!message.trim() || !isConnected}
+            className="px-5 py-2.5 bg-green-600 text-white rounded-xl flex items-center gap-2 disabled:opacity-50 hover:bg-green-700 transition text-sm font-medium"
           >
-            <Send className="w-5 h-5" />
+            <Send className="w-4 h-4" />
             <span className="hidden sm:inline">Send</span>
           </button>
         </form>
       </div>
+
     </div>
   );
 }

@@ -1,8 +1,4 @@
-import mongoose from "mongoose";
 import Campus from "../models/Campus.js";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const campuses = [
   { name: "DBIT - Don Bosco Institute of Technology", domain: "dbit.in", city: "Mumbai" },
@@ -13,14 +9,18 @@ const campuses = [
 
 export const seedCampuses = async () => {
   try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log("Connected to DB for seeding...");
+    const existing = await Campus.countDocuments();
 
-    await Campus.deleteMany({});
+    // Only seed if collection is empty — never wipe existing data
+    if (existing > 0) {
+      console.log(`ℹ️  Campuses already seeded (${existing} found), skipping.`);
+      return;
+    }
+
     await Campus.insertMany(campuses);
+    console.log("✅ Campuses seeded successfully.");
 
-    console.log("✅ Database Seeded: 4 Campuses added.");
   } catch (err) {
-    console.error("❌ Seeding failed:", err);
+    console.error("❌ Campus seeding failed:", err);
   }
 };

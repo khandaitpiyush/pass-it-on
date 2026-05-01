@@ -1,7 +1,20 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
-import { COLLEGES, BRANCHES, YEARS } from '../utils/mockData'
+
+const BRANCHES = [
+  'Computer Engineering',
+  'Information Technology',
+  'Electronics & Telecommunication',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Electrical Engineering',
+  'Chemical Engineering',
+  'Biomedical Engineering',
+  'Other',
+]
+
+const YEARS = ['FE', 'SE', 'TE', 'BE']
 
 export default function SignupPage() {
   const navigate = useNavigate()
@@ -14,8 +27,11 @@ export default function SignupPage() {
   const [showPassword, setShowPassword] = useState(false)
 
   const [formData, setFormData] = useState({
-    name: '', email: '', password: '',
-    collegeCode: '', branch: '', year: '',
+    name: '',
+    email: '',
+    password: '',
+    branch: '',
+    year: '',
   })
 
   useEffect(() => {
@@ -30,7 +46,7 @@ export default function SignupPage() {
     e.preventDefault()
     setError('')
 
-    if (!formData.name || !formData.email || !formData.password || !formData.collegeCode) {
+    if (!formData.name || !formData.email || !formData.password) {
       setError('Please fill in all required fields')
       return
     }
@@ -41,8 +57,22 @@ export default function SignupPage() {
 
     setIsLoading(true)
     try {
-      await signup(formData)
-      navigate('/dashboard')
+      const res = await signup({
+        name: formData.name,
+        email: formData.email,
+        password: formData.password,
+        branch: formData.branch,
+        year: formData.year,
+      })
+
+      // Backend auto-detects campus from email domain
+      // If personal email used, send to campus selection
+      if (res?.needsCampusSelection || !res?.user?.campusId) {
+        navigate('/select-campus')
+      } else {
+        navigate('/dashboard')
+      }
+
     } catch (err: any) {
       setError(err?.response?.data?.message || err.message || 'Failed to create account')
     } finally {
@@ -65,7 +95,6 @@ export default function SignupPage() {
           background: #faf9f7;
         }
 
-        /* ── LEFT ── */
         .su-left {
           position: relative;
           background: #1a3a2a;
@@ -130,7 +159,6 @@ export default function SignupPage() {
         }
 
         .su-steps { display: flex; flex-direction: column; gap: 18px; }
-
         .su-step { display: flex; align-items: flex-start; gap: 14px; }
 
         .su-step-num {
@@ -145,10 +173,8 @@ export default function SignupPage() {
 
         .su-step-title { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 2px; }
         .su-step-desc { font-size: 12px; color: rgba(255,255,255,0.4); }
-
         .su-left-footer { position: relative; z-index: 1; font-size: 12px; color: rgba(255,255,255,0.3); }
 
-        /* ── RIGHT ── */
         .su-right {
           display: flex; align-items: center; justify-content: center;
           padding: 40px; overflow-y: auto;
@@ -158,7 +184,6 @@ export default function SignupPage() {
         .su-right.mounted { opacity: 1; transform: translateY(0); }
 
         .su-card { width: 100%; max-width: 420px; }
-
         .su-card-header { margin-bottom: 28px; }
 
         .su-card-title {
@@ -173,7 +198,6 @@ export default function SignupPage() {
         }
         .su-card-sub a:hover { border-color: #1a3a2a; }
 
-        /* Notice */
         .su-notice {
           display: flex; align-items: flex-start; gap: 10px;
           background: #f0fdf4; border: 1px solid #bbf7d0;
@@ -182,7 +206,6 @@ export default function SignupPage() {
         }
         .su-notice-icon { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
 
-        /* Error */
         .su-error {
           display: flex; align-items: center; gap: 10px;
           background: #fff5f5; border: 1px solid #fecaca;
@@ -196,7 +219,6 @@ export default function SignupPage() {
           75% { transform: translateX(4px); }
         }
 
-        /* Fields */
         .su-fields { display: flex; flex-direction: column; gap: 13px; margin-bottom: 20px; }
         .su-field { display: flex; flex-direction: column; gap: 5px; }
         .su-label { font-size: 13px; font-weight: 500; color: #444; }
@@ -271,7 +293,7 @@ export default function SignupPage() {
 
       <div className="su-root">
 
-        {/* ── LEFT ── */}
+        {/* LEFT */}
         <div className="su-left">
           <div className="su-blob su-blob-1" />
           <div className="su-blob su-blob-2" />
@@ -285,7 +307,7 @@ export default function SignupPage() {
             <div className="su-tag">Free to join</div>
             <h1 className="su-heading">Your campus,<br /><em>reimagined</em></h1>
             <p className="su-sub">
-              Trade textbooks, gadgets, furniture and more — all within your trusted college network.
+              Trade textbooks, gadgets, and more — all within your trusted college network.
             </p>
             <div className="su-steps">
               <div className="su-step">
@@ -298,8 +320,8 @@ export default function SignupPage() {
               <div className="su-step">
                 <div className="su-step-num">2</div>
                 <div>
-                  <div className="su-step-title">Verify your email</div>
-                  <div className="su-step-desc">Unlock selling &amp; contacting sellers</div>
+                  <div className="su-step-title">Verify your college email</div>
+                  <div className="su-step-desc">Unlock selling privileges</div>
                 </div>
               </div>
               <div className="su-step">
@@ -312,10 +334,10 @@ export default function SignupPage() {
             </div>
           </div>
 
-          <div className="su-left-footer">© 2025 PassItOn · All rights reserved</div>
+          <div className="su-left-footer">© 2026 PassItOn · All rights reserved</div>
         </div>
 
-        {/* ── RIGHT ── */}
+        {/* RIGHT */}
         <div className={`su-right${mounted ? ' mounted' : ''}`}>
           <div className="su-card">
 
@@ -326,18 +348,20 @@ export default function SignupPage() {
               </p>
             </div>
 
-            {/* Info notice */}
             <div className="su-notice">
               <span className="su-notice-icon">💡</span>
               <span>
-                You can <strong>browse and buy</strong> right away. Verify your email later to <strong>sell items</strong> and contact sellers.
+                Use your <strong>college email</strong> to get auto-verified and unlock selling instantly.
+                Personal email users can verify later.
               </span>
             </div>
 
             {error && (
               <div className="su-error">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
                 </svg>
                 {error}
               </div>
@@ -352,12 +376,15 @@ export default function SignupPage() {
                   <div className={`su-field-wrap${focused === 'name' ? ' focused' : ''}`}>
                     <span className="su-icon">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                        <circle cx="12" cy="7" r="4"/>
                       </svg>
                     </span>
                     <input className="su-input" type="text" placeholder="John Doe"
-                      value={formData.name} onChange={e => set('name', e.target.value)}
-                      onFocus={() => setFocused('name')} onBlur={() => setFocused(null)}
+                      value={formData.name}
+                      onChange={e => set('name', e.target.value)}
+                      onFocus={() => setFocused('name')}
+                      onBlur={() => setFocused(null)}
                       autoComplete="name"
                     />
                   </div>
@@ -369,16 +396,19 @@ export default function SignupPage() {
                   <div className={`su-field-wrap${focused === 'email' ? ' focused' : ''}`}>
                     <span className="su-icon">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m2 7 10 7 10-7"/>
+                        <rect x="2" y="4" width="20" height="16" rx="2"/>
+                        <path d="m2 7 10 7 10-7"/>
                       </svg>
                     </span>
                     <input className="su-input" type="email" placeholder="you@college.edu"
-                      value={formData.email} onChange={e => set('email', e.target.value)}
-                      onFocus={() => setFocused('email')} onBlur={() => setFocused(null)}
+                      value={formData.email}
+                      onChange={e => set('email', e.target.value)}
+                      onFocus={() => setFocused('email')}
+                      onBlur={() => setFocused(null)}
                       autoComplete="email"
                     />
                   </div>
-                  <span className="su-hint">Use college email to get a verified badge ✓</span>
+                  <span className="su-hint">College email = instant verified seller ✓</span>
                 </div>
 
                 {/* Password */}
@@ -387,14 +417,19 @@ export default function SignupPage() {
                   <div className={`su-field-wrap${focused === 'password' ? ' focused' : ''}`}>
                     <span className="su-icon">
                       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        <rect x="3" y="11" width="18" height="11" rx="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
                       </svg>
                     </span>
-                    <input className="su-input" type={showPassword ? 'text' : 'password'}
+                    <input className="su-input"
+                      type={showPassword ? 'text' : 'password'}
                       placeholder="Min. 6 characters"
-                      value={formData.password} onChange={e => set('password', e.target.value)}
-                      onFocus={() => setFocused('password')} onBlur={() => setFocused(null)}
-                      autoComplete="new-password" style={{ paddingRight: '38px' }}
+                      value={formData.password}
+                      onChange={e => set('password', e.target.value)}
+                      onFocus={() => setFocused('password')}
+                      onBlur={() => setFocused(null)}
+                      autoComplete="new-password"
+                      style={{ paddingRight: '38px' }}
                     />
                     <button type="button" className="su-toggle"
                       onClick={() => setShowPassword(v => !v)} tabIndex={-1}>
@@ -414,26 +449,7 @@ export default function SignupPage() {
                   </div>
                 </div>
 
-                {/* College */}
-                <div className="su-field">
-                  <label className="su-label">College <span className="su-req">*</span></label>
-                  <div className={`su-field-wrap${focused === 'college' ? ' focused' : ''}`}>
-                    <span className="su-icon">
-                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M22 10v6M2 10l10-5 10 5-10 5z"/>
-                        <path d="M6 12v5c3 3 9 3 12 0v-5"/>
-                      </svg>
-                    </span>
-                    <select className="su-select"
-                      value={formData.collegeCode} onChange={e => set('collegeCode', e.target.value)}
-                      onFocus={() => setFocused('college')} onBlur={() => setFocused(null)}>
-                      <option value="">Choose your college</option>
-                      {COLLEGES.map(c => <option key={c.code} value={c.code}>{c.name}</option>)}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Branch + Year */}
+                {/* Branch + Year — optional, stored for profile display */}
                 <div className="su-grid2">
                   <div className="su-field">
                     <label className="su-label">Branch</label>
@@ -444,8 +460,10 @@ export default function SignupPage() {
                         </svg>
                       </span>
                       <select className="su-select"
-                        value={formData.branch} onChange={e => set('branch', e.target.value)}
-                        onFocus={() => setFocused('branch')} onBlur={() => setFocused(null)}>
+                        value={formData.branch}
+                        onChange={e => set('branch', e.target.value)}
+                        onFocus={() => setFocused('branch')}
+                        onBlur={() => setFocused(null)}>
                         <option value="">Select</option>
                         {BRANCHES.map(b => <option key={b} value={b}>{b}</option>)}
                       </select>
@@ -464,8 +482,10 @@ export default function SignupPage() {
                         </svg>
                       </span>
                       <select className="su-select"
-                        value={formData.year} onChange={e => set('year', e.target.value)}
-                        onFocus={() => setFocused('year')} onBlur={() => setFocused(null)}>
+                        value={formData.year}
+                        onChange={e => set('year', e.target.value)}
+                        onFocus={() => setFocused('year')}
+                        onBlur={() => setFocused(null)}>
                         <option value="">Select</option>
                         {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                       </select>

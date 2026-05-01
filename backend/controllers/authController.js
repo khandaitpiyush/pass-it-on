@@ -15,6 +15,17 @@ const brevoClient = SibApiV3Sdk.ApiClient.instance;
 const apiKey = brevoClient.authentications["api-key"];
 apiKey.apiKey = process.env.BREVO_API_KEY;
 
+/* ---------------- HELPER — strip sensitive fields ---------------- */
+
+const sanitizeUser = (user) => {
+  const obj = user.toObject ? user.toObject() : { ...user };
+  delete obj.password;
+  delete obj.otp;
+  delete obj.otpExpiry;
+  delete obj.__v;
+  return obj;
+};
+
 /* ---------------- SIGNUP ---------------- */
 
 export const signup = async (req, res) => {
@@ -22,12 +33,10 @@ export const signup = async (req, res) => {
     const { name, email, password, branch, year } = req.body;
 
     const existingUser = await User.findOne({ email });
-
     if (existingUser) {
       return res.status(400).json({ message: "User already exists" });
     }
 
-    // Auto-detect campus based on email domain (normalized to lowercase)
     const domain = email.split("@")[1].toLowerCase();
     const campus = await Campus.findOne({ domain });
 
@@ -48,18 +57,18 @@ export const signup = async (req, res) => {
       branch,
       year,
       campusId,
-      studentVerified
+      studentVerified,
+      emailVerified: !!campus, // auto-verified if college email
     });
 
-    // Pass the full user object to include campusId in the JWT payload
     const token = generateToken(user);
 
     res.json({
-      user,
+      user: sanitizeUser(user),
       token,
       campusId: user.campusId,
       studentVerified: user.studentVerified,
-      needsCampusSelection: !user.campusId 
+      needsCampusSelection: !user.campusId,
     });
 
   } catch (error) {
@@ -74,31 +83,32 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Explicitly select the password field if it is set to select: false in the schema
     const user = await User.findOne({ email }).select("+password");
 
     if (!user) {
       return res.status(400).json({ message: "User not found" });
     }
 
-    const passwordMatch = await bcrypt.compare(password, user.password);
+    // Block Google-only accounts from password login
+    if (user.provider === "google" && !user.password) {
+      return res.status(400).json({
+        message: "This account uses Google login. Please sign in with Google."
+      });
+    }
 
+    const passwordMatch = await bcrypt.compare(password, user.password);
     if (!passwordMatch) {
       return res.status(400).json({ message: "Invalid password" });
     }
 
-    // Pass the full user object to include campusId in the JWT payload
     const token = generateToken(user);
 
-    // Remove the password from the user object before sending it to the client
-    user.password = undefined;
-
     res.json({
-      user,
+      user: sanitizeUser(user),
       token,
       campusId: user.campusId,
       studentVerified: user.studentVerified,
-      needsCampusSelection: !user.campusId 
+      needsCampusSelection: !user.campusId,
     });
 
   } catch (error) {
@@ -109,17 +119,34 @@ export const login = async (req, res) => {
 
 /* ---------------- SEND OTP ---------------- */
 
+// IMPORTANT: This route is protected — req.user comes from JWT via protect middleware.
+// The email in req.body is the COLLEGE email to verify, NOT the login email.
+// We find the user by req.user._id, not by the college email.
+
 export const sendOTP = async (req, res) => {
   try {
-    const { email } = req.body;
-    const user = await User.findOne({ email });
+    const { email } = req.body; // college email to verify
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // Find user by their account ID from JWT — not by the college email
+    const user = await User.findById(req.user._id);
 
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Reject if already verified
+    if (user.studentVerified) {
+      return res.status(400).json({
+        message: "Your college email is already verified."
+      });
     }
 
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = Date.now() + 5 * 60 * 1000;
+    const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
 
     user.otp = otp;
     user.otpExpiry = expiry;
@@ -128,10 +155,43 @@ export const sendOTP = async (req, res) => {
     const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
     await apiInstance.sendTransacEmail({
-      sender: { email: "your@email.com" }, // Replace with your verified sender
-      to: [{ email }],
-      subject: "PassItOn OTP Verification",
-      htmlContent: `<h2>Your OTP is ${otp}</h2>`
+      sender: { name: "PassItOn", email: "noreply@passiton.in" },
+      to: [{ email }], // send to the college email being verified
+      subject: "Verify your college email — PassItOn",
+      htmlContent: `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                    max-width: 480px; margin: 0 auto; padding: 40px 32px; background: #ffffff;">
+
+          <div style="margin-bottom: 32px;">
+            <span style="font-size: 24px; font-weight: 800; color: #1a3a2a;">PassItOn</span>
+          </div>
+
+          <h2 style="font-size: 22px; font-weight: 700; color: #111; margin-bottom: 8px;">
+            Verify your college email
+          </h2>
+          <p style="color: #666; font-size: 15px; line-height: 1.6; margin-bottom: 28px;">
+            Use the code below to confirm your student status and unlock selling on PassItOn.
+            This code expires in <strong>10 minutes</strong>.
+          </p>
+
+          <div style="background: #f0fdf4; border: 1.5px solid #bbf7d0; border-radius: 16px;
+                      padding: 28px; text-align: center; margin-bottom: 28px;">
+            <span style="font-size: 40px; font-weight: 900; letter-spacing: 10px; color: #166534;
+                         font-family: 'Courier New', monospace;">
+              ${otp}
+            </span>
+          </div>
+
+          <p style="color: #999; font-size: 13px; line-height: 1.6;">
+            If you didn't request this, you can safely ignore this email.
+            Your account remains secure.
+          </p>
+
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #f0f0f0;">
+            <p style="color: #bbb; font-size: 12px;">© 2026 PassItOn · Campus Academic Marketplace</p>
+          </div>
+        </div>
+      `
     });
 
     res.json({ message: "OTP sent successfully" });
@@ -146,27 +206,53 @@ export const sendOTP = async (req, res) => {
 
 export const verifyOTP = async (req, res) => {
   try {
-    const { email, otp } = req.body;
-    const user = await User.findOne({ email });
+    const { email, otp } = req.body; // email = college email being verified
 
-    if (!user) {
-      return res.status(400).json({ message: "User not found" });
+    if (!email || !otp) {
+      return res.status(400).json({ message: "Email and OTP are required" });
     }
 
-    if (user.otp !== otp) {
+    // Find user by their account ID from JWT
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.otp || user.otp !== otp) {
       return res.status(400).json({ message: "Invalid OTP" });
     }
 
     if (user.otpExpiry < Date.now()) {
-      return res.status(400).json({ message: "OTP expired" });
+      return res.status(400).json({
+        message: "OTP has expired. Please request a new one."
+      });
     }
 
+    // Detect campus from the college email domain
+    const domain = email.split("@")[1].toLowerCase();
+    const campus = await Campus.findOne({ domain });
+
     user.emailVerified = true;
+    user.studentVerified = true;
     user.otp = null;
     user.otpExpiry = null;
+
+    // Auto-assign campus if domain matches a known campus
+    if (campus) {
+      user.campusId = campus._id;
+    }
+
     await user.save();
 
-    res.json({ message: "Email verified successfully" });
+    const userObj = sanitizeUser(user);
+
+    res.json({
+      message: "College email verified successfully",
+      user: userObj,
+      studentVerified: true,
+      campusId: user.campusId,
+    });
 
   } catch (error) {
     console.error(error);
@@ -189,8 +275,6 @@ export const googleLogin = async (req, res) => {
     const { email, name, sub } = payload;
 
     const domain = email.split("@")[1].toLowerCase();
-
-    // Find campus using domain
     const campus = await Campus.findOne({ domain });
 
     let studentVerified = false;
@@ -209,13 +293,12 @@ export const googleLogin = async (req, res) => {
         email,
         googleId: sub,
         provider: "google",
-        emailVerified: true, // Google emails are pre-verified
+        emailVerified: true,
         studentVerified,
         campusId
       });
     } else {
-      // update verification if a user previously logged in without it, 
-      // but their campus domain was recently added to the DB
+      // Upgrade if campus domain was added after their first login
       if (studentVerified && !user.studentVerified) {
         user.studentVerified = true;
         user.campusId = campusId;
@@ -223,15 +306,14 @@ export const googleLogin = async (req, res) => {
       }
     }
 
-    // Pass the full user object to include campusId in the JWT payload
     const jwtToken = generateToken(user);
 
     res.json({
-      user,
+      user: sanitizeUser(user),
       token: jwtToken,
       campusId: user.campusId,
       studentVerified: user.studentVerified,
-      needsCampusSelection: !user.campusId 
+      needsCampusSelection: !user.campusId,
     });
 
   } catch (error) {
@@ -240,7 +322,7 @@ export const googleLogin = async (req, res) => {
   }
 };
 
-/* ---------------- SELECT CAMPUS (For Gmail Users) ---------------- */
+/* ---------------- SELECT CAMPUS ---------------- */
 
 export const selectCampus = async (req, res) => {
   try {
@@ -266,22 +348,14 @@ export const selectCampus = async (req, res) => {
 
     user.campusId = campusId;
     user.studentVerified = false;
-
     await user.save();
-
-    // Convert to plain object and strip sensitive fields
-    const userObj = user.toObject();
-    delete userObj.password;
-    delete userObj.otp;
-    delete userObj.otpExpiry;
-    delete userObj.__v;
 
     res.json({
       message: "Campus assigned successfully",
-      user: userObj,                        // ← clean object
-      campusId: userObj.campusId,
-      studentVerified: userObj.studentVerified,
-      needsCampusSelection: false
+      user: sanitizeUser(user),
+      campusId: user.campusId,
+      studentVerified: user.studentVerified,
+      needsCampusSelection: false,
     });
 
   } catch (error) {
@@ -294,7 +368,6 @@ export const selectCampus = async (req, res) => {
 
 export const getCampuses = async (req, res) => {
   try {
-    // Fetch active campuses, select _id and name, and sort alphabetically
     const campuses = await Campus.find({ isActive: true })
       .select("_id name")
       .sort({ name: 1 });
@@ -302,8 +375,6 @@ export const getCampuses = async (req, res) => {
     res.json(campuses);
   } catch (error) {
     console.error(error);
-    res.status(500).json({
-      message: "Failed to fetch campuses"
-    });
+    res.status(500).json({ message: "Failed to fetch campuses" });
   }
 };
