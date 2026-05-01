@@ -1,29 +1,23 @@
-// utils/emailHelper.ts
-interface SendEmailOptions {
-  to: string;
-  toName?: string;
-  subject: string;
-  htmlContent: string;
-  textContent?: string;
-}
+// utils/emailHelper.js
 
-interface BrevoEmailPayload {
-  sender: { name: string; email: string };
-  to: { email: string; name?: string }[];
-  subject: string;
-  htmlContent: string;
-  textContent?: string;
-}
-
-export async function sendEmail(options: SendEmailOptions): Promise<void> {
+/**
+ * Send email using Brevo SMTP API
+ * @param {Object} options
+ * @param {string} options.to
+ * @param {string} [options.toName]
+ * @param {string} options.subject
+ * @param {string} options.htmlContent
+ * @param {string} [options.textContent]
+ */
+export async function sendEmail(options) {
   const apiKey = process.env.BREVO_API_KEY;
   const senderEmail = process.env.BREVO_SENDER_EMAIL;
-  const senderName = process.env.BREVO_SENDER_NAME || 'PassItOn'; // ← changed
+  const senderName = process.env.BREVO_SENDER_NAME || "PassItOn";
 
-  if (!apiKey) throw new Error('BREVO_API_KEY is not configured.');
-  if (!senderEmail) throw new Error('BREVO_SENDER_EMAIL is not configured.');
+  if (!apiKey) throw new Error("BREVO_API_KEY is not configured.");
+  if (!senderEmail) throw new Error("BREVO_SENDER_EMAIL is not configured.");
 
-  const payload: BrevoEmailPayload = {
+  const payload = {
     sender: { name: senderName, email: senderEmail },
     to: [{ email: options.to, name: options.toName }],
     subject: options.subject,
@@ -31,27 +25,37 @@ export async function sendEmail(options: SendEmailOptions): Promise<void> {
     ...(options.textContent && { textContent: options.textContent }),
   };
 
-  const response = await fetch('https://api.brevo.com/v3/smtp/email', {
-    method: 'POST',
+  const response = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
     headers: {
-      'accept': 'application/json',
-      'api-key': apiKey,
-      'content-type': 'application/json',
+      accept: "application/json",
+      "api-key": apiKey,
+      "content-type": "application/json",
     },
     body: JSON.stringify(payload),
   });
 
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => ({}));
+    let errorBody = {};
+    try {
+      errorBody = await response.json();
+    } catch (_) {}
+
     throw new Error(
       `Brevo API error ${response.status}: ${
-        (errorBody as any)?.message ?? response.statusText
+        errorBody?.message || response.statusText
       }`
     );
   }
 }
 
-export function buildOtpEmailHtml(otp: string, userName: string): string {
+/**
+ * Build OTP email HTML
+ * @param {string} otp
+ * @param {string} userName
+ * @returns {string}
+ */
+export function buildOtpEmailHtml(otp, userName) {
   return `
 <!DOCTYPE html>
 <html lang="en">
