@@ -224,12 +224,12 @@ export default function Dashboard() {
             }}>PassItOn</span>
           </Link>
 
-          {/* Nav */}
+          {/* Nav — /chat → /chats */}
           <nav style={{ display: 'flex', gap: '4px' }}>
             {[
-              { to: '/browse', label: 'Browse' },
+              { to: '/browse',      label: 'Browse' },
               { to: '/my-listings', label: 'My Listings' },
-              { to: '/chat', label: 'Chats' },
+              { to: '/chats',       label: 'Chats' },  // ← fixed
             ].map(n => (
               <Link key={n.to} to={n.to} style={{
                 padding: '7px 14px', borderRadius: '100px',
@@ -420,7 +420,7 @@ export default function Dashboard() {
               accent: '#2563eb',
             },
             {
-              to: '/chat',
+              to: '/chats',  // ← fixed
               icon: <MessageCircle style={{ width: '22px', height: '22px', color: '#7c3aed' }} />,
               iconBg: '#ede9fe',
               label: 'Chats',

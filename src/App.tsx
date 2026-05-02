@@ -12,6 +12,7 @@ import BrowsePage from './pages/BrowsePage'
 import ItemDetailPage from './pages/ItemDetailPage'
 import AddListingPage from './pages/AddListingPage'
 import ChatPage from './pages/ChatPage'
+import ChatsPage from './pages/ChatsPage'
 import ProfilePage from './pages/ProfilePage'
 import MyListingsPage from './pages/MyListingsPage'
 
@@ -109,7 +110,13 @@ export default function App() {
           element={<ProtectedRoute><ProfilePage /></ProtectedRoute>}
         />
 
-        {/* Chat — both /chat and /chat/:sellerId */}
+        {/* Chats inbox */}
+        <Route
+          path="/chats"
+          element={<ProtectedRoute><ChatsPage /></ProtectedRoute>}
+        />
+
+        {/* Individual chat — both /chat and /chat/:sellerId */}
         <Route
           path="/chat"
           element={<ProtectedRoute><ChatPage /></ProtectedRoute>}
