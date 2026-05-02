@@ -185,6 +185,7 @@ export default function ChatPage() {
   const [hasMore, setHasMore]                   = useState(false);
   const [isLoadingMore, setIsLoadingMore]       = useState(false);
   const [cursor, setCursor]                     = useState<string | null>(null);
+  const [sellerName, setSellerName]             = useState<string>('');  // ← new
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -194,10 +195,24 @@ export default function ChatPage() {
   const ackTimers      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const isFirstLoad    = useRef(true);
 
-  const roomIdRef       = useRef<string | null>(null);
+  const roomIdRef   = useRef<string | null>(null);
   roomIdRef.current = (user?._id && sellerId)
     ? buildRoomId(user._id, sellerId)
     : null;
+
+  // ── Fetch seller name ──────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!sellerId) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    fetch(`http://localhost:5000/api/auth/users/${sellerId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.name) setSellerName(data.name); })
+      .catch(() => {});
+  }, [sellerId]);
 
   // ── Fetch history ──────────────────────────────────────────────────────────
   const fetchHistory = useCallback(async (beforeCursor?: string) => {
@@ -212,10 +227,7 @@ export default function ChatPage() {
 
     try {
       const token = localStorage.getItem('token');
-      if (!token) {
-        console.error('[Chat] fetchHistory: no auth token');
-        return;
-      }
+      if (!token) { console.error('[Chat] fetchHistory: no auth token'); return; }
 
       const params = new URLSearchParams({ limit: String(PAGE_LIMIT) });
       if (beforeCursor) params.set('before', beforeCursor);
@@ -263,10 +275,7 @@ export default function ChatPage() {
     if (!user?._id || !sellerId || sellerId === user._id) return;
 
     const token = localStorage.getItem('token');
-    if (!token) {
-      console.error('[Chat] Cannot open socket: no auth token');
-      return;
-    }
+    if (!token) { console.error('[Chat] Cannot open socket: no auth token'); return; }
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -280,11 +289,11 @@ export default function ChatPage() {
     isFirstLoad.current = true;
 
     const socket = io(SOCKET_URL, {
-      transports:          ['websocket'],
-      auth:                { token },
-      reconnection:        true,
+      transports:           ['websocket'],
+      auth:                 { token },
+      reconnection:         true,
       reconnectionAttempts: 5,
-      reconnectionDelay:   1000,
+      reconnectionDelay:    1000,
     });
 
     socketRef.current = socket;
@@ -304,15 +313,10 @@ export default function ChatPage() {
     });
 
     socket.on('message_ack', ({ idempotencyKey, _id, timestamp }: {
-      idempotencyKey: string;
-      _id:            string;
-      timestamp:      string;
+      idempotencyKey: string; _id: string; timestamp: string;
     }) => {
       const timer = ackTimers.current.get(idempotencyKey);
-      if (timer) {
-        clearTimeout(timer);
-        ackTimers.current.delete(idempotencyKey);
-      }
+      if (timer) { clearTimeout(timer); ackTimers.current.delete(idempotencyKey); }
       setMessages(prev =>
         prev.map(m =>
           m.idempotencyKey === idempotencyKey
@@ -357,7 +361,6 @@ export default function ChatPage() {
   if (isLoading) return null;
   if (!user)     return null;
 
-  // No sellerId → show empty state with back link to /chats
   if (!sellerId) {
     return (
       <div style={{
@@ -488,9 +491,14 @@ export default function ChatPage() {
     inputRef.current?.focus();
   };
 
-  const grouped       = groupByDate(messages);
-  const sellerInitial = sellerId.charAt(0).toUpperCase();
-  const canSend       = !!message.trim() && isConnected;
+  // Use fetched name; fall back to first char of sellerId while loading
+  const displayName   = sellerName || 'Loading…';
+  const sellerInitial = sellerName
+    ? sellerName.charAt(0).toUpperCase()
+    : sellerId.charAt(0).toUpperCase();
+
+  const grouped = groupByDate(messages);
+  const canSend = !!message.trim() && isConnected;
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -511,7 +519,6 @@ export default function ChatPage() {
           maxWidth: '760px', margin: '0 auto', padding: '0 24px', height: '68px',
           display: 'flex', alignItems: 'center', gap: '14px',
         }}>
-          {/* Back to chats list instead of browse */}
           <Link to="/chats" className="nav-link" style={{ flexShrink: 0 }}>
             <ArrowLeft style={{ width: '18px', height: '18px' }} />
           </Link>
@@ -528,10 +535,14 @@ export default function ChatPage() {
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
+            {/* ← real seller name here */}
             <div style={{
               fontFamily: "'Fraunces', serif", fontSize: '17px', fontWeight: 600,
               color: G.charcoal, letterSpacing: '-0.01em',
-            }}>Seller</div>
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              {displayName}
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '1px' }}>
               {isConnected ? (
                 <>
@@ -615,7 +626,7 @@ export default function ChatPage() {
               <p style={{
                 fontFamily: "'Fraunces', serif", fontSize: '18px', fontWeight: 600,
                 color: G.charcoal, marginBottom: '6px', letterSpacing: '-0.01em',
-              }}>Say hello!</p>
+              }}>Say hello to {sellerName || '…'}!</p>
               <p style={{ fontSize: '14px', color: G.muted, lineHeight: 1.6 }}>
                 Ask if the item is available or negotiate a price.
               </p>

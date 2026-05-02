@@ -439,3 +439,165 @@ export const getCampuses = async (req, res) => {
     res.status(500).json({ message: 'Failed to fetch campuses. Please try again.' });
   }
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/send-signup-otp
+// PUBLIC — called before account exists. Creates a temp "pending" user,
+// sends OTP. Re-uses the exact same OTP infrastructure as sendOTP.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const sendSignupOtp = async (req, res) => {
+  try {
+    const { name, email, password, branch, year } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: 'Name, email and password are required.' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Block if account already fully exists and is verified
+    const existing = await User.findOne({ email: normalizedEmail });
+    if (existing && existing.emailVerified) {
+      return res.status(409).json({ message: 'An account with this email already exists.' });
+    }
+
+    // Resend cooldown on pending (unverified) accounts
+    if (existing && existing.otpLastSentAt) {
+      const elapsed = (Date.now() - new Date(existing.otpLastSentAt).getTime()) / 1000;
+      if (elapsed < 60) {
+        const wait = Math.ceil(60 - elapsed);
+        return res.status(429).json({
+          message: `Please wait ${wait}s before requesting a new code.`,
+          waitSeconds: wait,
+        });
+      }
+    }
+
+    const otp    = String(Math.floor(100000 + Math.random() * 900000));
+    const otpHash = await bcrypt.hash(otp, 10);
+
+    const domain = normalizedEmail.split('@')[1];
+    const campus = await Campus.findOne({ domain });
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Upsert: create pending user or refresh their OTP if they're retrying
+    await User.findOneAndUpdate(
+      { email: normalizedEmail },
+      {
+        $set: {
+          name,
+          email: normalizedEmail,
+          password: hashedPassword,
+          branch:   branch || '',
+          year:     year   || '',
+          campusId:        campus?._id ?? null,
+          studentVerified: false,
+          emailVerified:   false,
+          otpHash,
+          otpExpiry:     new Date(Date.now() + 10 * 60 * 1000),
+          otpAttempts:   0,
+          otpLastSentAt: new Date(),
+        },
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+
+    await sendEmail({
+      to:          normalizedEmail,
+      toName:      name,
+      subject:     `${otp} is your PassItOn verification code`,
+      htmlContent: buildOtpEmailHtml(otp, name),
+    });
+
+    res.json({ message: 'Verification code sent. Check your inbox.' });
+
+  } catch (err) {
+    console.error('[sendSignupOtp]', err.message);
+    res.status(500).json({ message: 'Failed to send code. Please try again.' });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/auth/verify-signup-otp
+// PUBLIC — verifies OTP, marks user as emailVerified, returns JWT.
+// Re-uses the same bcrypt hash check and attempt-limiting as verifyOTP.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const verifySignupOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp || String(otp).trim().length !== 6) {
+      return res.status(400).json({ message: 'Email and 6-digit code are required.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const user = await User.findOne({ email: normalizedEmail }).select('+otpHash');
+    if (!user) {
+      return res.status(400).json({ message: 'No pending signup found. Please start over.' });
+    }
+    if (user.emailVerified) {
+      return res.status(400).json({ message: 'This email is already verified. Please log in.' });
+    }
+    if (!user.otpHash || !user.otpExpiry) {
+      return res.status(400).json({ message: 'No active code found. Please request a new one.' });
+    }
+    if (new Date() > new Date(user.otpExpiry)) {
+      await User.findByIdAndUpdate(user._id, {
+        $unset: { otpHash: '', otpExpiry: '', otpAttempts: '', otpLastSentAt: '' },
+      });
+      return res.status(400).json({ message: 'Code expired. Please request a new one.' });
+    }
+    if (user.otpAttempts >= 5) {
+      await User.findByIdAndUpdate(user._id, {
+        $unset: { otpHash: '', otpExpiry: '', otpAttempts: '', otpLastSentAt: '' },
+      });
+      return res.status(429).json({ message: 'Too many attempts. Please request a new code.' });
+    }
+
+    const isMatch = await bcrypt.compare(String(otp).trim(), user.otpHash);
+    if (!isMatch) {
+      await User.findByIdAndUpdate(user._id, { $inc: { otpAttempts: 1 } });
+      const remaining = 5 - (user.otpAttempts + 1);
+      return res.status(400).json({
+        message: remaining > 0
+          ? `Wrong code. ${remaining} attempt${remaining !== 1 ? 's' : ''} left.`
+          : 'Wrong code. Please request a new one.',
+      });
+    }
+
+    // ✅ OTP correct — activate account
+    const domain = normalizedEmail.split('@')[1];
+    const campus = await Campus.findOne({ domain });
+
+    const activated = await User.findByIdAndUpdate(
+      user._id,
+      {
+        emailVerified:   true,
+        studentVerified: !!campus,
+        ...(campus && { campusId: campus._id }),
+        $unset: { otpHash: '', otpExpiry: '', otpAttempts: '', otpLastSentAt: '' },
+      },
+      { new: true }
+    );
+
+    const token = generateToken(activated);
+
+    res.status(201).json({
+      user:                sanitizeUser(activated),
+      token,
+      campusId:            activated.campusId,
+      studentVerified:     activated.studentVerified,
+      needsCampusSelection: !activated.campusId,
+    });
+
+  } catch (err) {
+    console.error('[verifySignupOtp]', err.message);
+    res.status(500).json({ message: 'Verification failed. Please try again.' });
+  }
+};

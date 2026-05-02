@@ -9,6 +9,7 @@ interface Room {
   lastMessage:   string;
   lastTimestamp: string;
   lastSenderId:  string;
+  otherName:     string;
 }
 
 function formatTime(ts: string) {
@@ -16,10 +17,10 @@ function formatTime(ts: string) {
   const mins  = Math.floor(diff / 60_000);
   const hours = Math.floor(diff / 3_600_000);
   const days  = Math.floor(diff / 86_400_000);
-  if (mins < 1)  return 'Just now';
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1)   return 'Just now';
+  if (mins < 60)  return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
-  if (days < 7)  return `${days}d ago`;
+  if (days < 7)   return `${days}d ago`;
   return new Date(ts).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
@@ -74,20 +75,41 @@ const pageStyles = `
 `;
 
 export default function ChatsPage() {
-  const { user }                    = useAuth();
-  const [rooms, setRooms]           = useState<Room[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [error, setError]           = useState('');
+  const { user }              = useAuth();
+  const [rooms, setRooms]     = useState<Room[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
 
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { setLoading(false); return; }
 
+    // 1. Fetch all rooms
     fetch('http://localhost:5000/api/messages', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })
-      .then(data => setRooms(data.rooms ?? []))
+      .then(async (data) => {
+        const rawRooms = data.rooms ?? [];
+
+        // 2. For each room fetch the other user's name in parallel
+        const enriched = await Promise.all(
+          rawRooms.map(async (room: Omit<Room, 'otherName'>) => {
+            try {
+              const res = await fetch(
+                `http://localhost:5000/api/auth/users/${room.otherId}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+              );
+              const profile = res.ok ? await res.json() : null;
+              return { ...room, otherName: profile?.name ?? 'Unknown' };
+            } catch {
+              return { ...room, otherName: 'Unknown' };
+            }
+          })
+        );
+
+        setRooms(enriched);
+      })
       .catch(() => setError('Could not load chats. Please try again.'))
       .finally(() => setLoading(false));
   }, []);
@@ -155,7 +177,7 @@ export default function ChatsPage() {
         {/* Room list */}
         {!loading && !error && rooms.map(room => {
           const isOwn   = room.lastSenderId === user?._id;
-          const initial = room.otherId.charAt(0).toUpperCase();
+          const initial = room.otherName.charAt(0).toUpperCase();
           const preview = (isOwn ? 'You: ' : '') + room.lastMessage;
 
           return (
@@ -182,8 +204,9 @@ export default function ChatsPage() {
                   display: 'flex', justifyContent: 'space-between',
                   alignItems: 'center', marginBottom: '4px',
                 }}>
+                  {/* ← real name now shown here */}
                   <span style={{ fontWeight: 600, fontSize: '14px', color: G.charcoal }}>
-                    Seller
+                    {room.otherName}
                   </span>
                   <span style={{ fontSize: '11px', color: G.muted, flexShrink: 0, marginLeft: '8px' }}>
                     {formatTime(room.lastTimestamp)}
