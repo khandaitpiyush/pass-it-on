@@ -722,7 +722,7 @@ export default function ItemDetailPage() {
             {!isOwnListing ? (
               <button
                 className="chat-btn"
-                onClick={() => navigate(`/chat/${listing.seller._id}`)}
+                onClick={() => navigate(`/chat/${listing.seller._id}?listingId=${listing._id}&listingTitle=${encodeURIComponent(listing.title)}`)}
               >
                 <MessageCircle style={{ width: '20px', height: '20px' }} />
                 Chat with Seller

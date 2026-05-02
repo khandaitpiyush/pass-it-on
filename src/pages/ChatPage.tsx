@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, Send, ShieldCheck, Package,
@@ -36,6 +36,7 @@ interface Message {
   text:           string;
   timestamp:      string;
   status:         MessageStatus;
+  isContextCard?: boolean; // rendered differently — not a chat bubble
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -128,6 +129,20 @@ const chatStyles = `
     border-top-color:${G.green500}; border-radius:50%;
     animation:spin 0.7s linear infinite; display:inline-block;
   }
+
+  .context-card {
+    display:flex; align-items:center; gap:10px;
+    padding:11px 16px; border-radius:14px;
+    background:${G.green50}; border:1px solid ${G.green100};
+    font-family:'DM Sans',sans-serif;
+    animation: fadeIn 0.3s ease both;
+  }
+  .context-card-link {
+    font-size:12px; font-weight:600; color:${G.green600};
+    text-decoration:none; white-space:nowrap; margin-left:auto; flex-shrink:0;
+    transition:color 0.15s;
+  }
+  .context-card-link:hover { color:${G.green700}; }
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -164,6 +179,21 @@ function groupByDate(messages: Message[]) {
   return groups;
 }
 
+// Detect context card messages saved in DB
+// Format: "LISTING_CONTEXT::<listingId>::<listingTitle>"
+const CONTEXT_PREFIX = 'LISTING_CONTEXT::';
+
+function parseContextMessage(text: string): { listingId: string; listingTitle: string } | null {
+  if (!text.startsWith(CONTEXT_PREFIX)) return null;
+  const parts = text.slice(CONTEXT_PREFIX.length).split('::');
+  if (parts.length < 2) return null;
+  return { listingId: parts[0], listingTitle: parts.slice(1).join('::') };
+}
+
+function buildContextText(listingId: string, listingTitle: string): string {
+  return `${CONTEXT_PREFIX}${listingId}::${listingTitle}`;
+}
+
 const SUGGESTED = [
   'Is this still available? 👀',
   'Can you do a lower price?',
@@ -174,8 +204,15 @@ const SUGGESTED = [
 
 export default function ChatPage() {
   const { sellerId }        = useParams<{ sellerId: string }>();
+  const [searchParams]      = useSearchParams();
   const { user, isLoading } = useAuth();
   const navigate            = useNavigate();
+
+  // Listing context from URL query params (set by ItemDetailPage)
+  const urlListingId    = searchParams.get('listingId');
+  const urlListingTitle = searchParams.get('listingTitle')
+    ? decodeURIComponent(searchParams.get('listingTitle')!)
+    : null;
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [messages, setMessages]                 = useState<Message[]>([]);
@@ -185,15 +222,16 @@ export default function ChatPage() {
   const [hasMore, setHasMore]                   = useState(false);
   const [isLoadingMore, setIsLoadingMore]       = useState(false);
   const [cursor, setCursor]                     = useState<string | null>(null);
-  const [sellerName, setSellerName]             = useState<string>('');  // ← new
+  const [sellerName, setSellerName]             = useState<string>('');
 
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef       = useRef<HTMLInputElement>(null);
-  const socketRef      = useRef<Socket | null>(null);
-  const scrollRef      = useRef<HTMLDivElement>(null);
-  const ackTimers      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const isFirstLoad    = useRef(true);
+  const messagesEndRef   = useRef<HTMLDivElement>(null);
+  const inputRef         = useRef<HTMLInputElement>(null);
+  const socketRef        = useRef<Socket | null>(null);
+  const scrollRef        = useRef<HTMLDivElement>(null);
+  const ackTimers        = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const isFirstLoad      = useRef(true);
+  const contextSentRef   = useRef(false); // prevents double-sending context msg
 
   const roomIdRef   = useRef<string | null>(null);
   roomIdRef.current = (user?._id && sellerId)
@@ -205,7 +243,6 @@ export default function ChatPage() {
     if (!sellerId) return;
     const token = localStorage.getItem('token');
     if (!token) return;
-
     fetch(`http://localhost:5000/api/auth/users/${sellerId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -269,6 +306,56 @@ export default function ChatPage() {
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Auto-send listing context as first message ─────────────────────────────
+  // Only fires when: fresh chat (0 messages), opened from a listing,
+  // socket connected, history done loading. Saved to DB so seller sees it too.
+  useEffect(() => {
+    if (!isConnected)           return;
+    if (isLoadingHistory)       return;
+    if (messages.length > 0)    return; // chat already has history
+    if (!urlListingId)          return; // not opened from a listing
+    if (!urlListingTitle)       return;
+    if (contextSentRef.current) return; // already sent this session
+    if (!roomIdRef.current)     return;
+    if (!socketRef.current)     return;
+    if (!user)                  return;
+
+    contextSentRef.current = true;
+
+    const text           = buildContextText(urlListingId, urlListingTitle);
+    const idempotencyKey = genIdempotencyKey();
+
+    const optimistic: Message = {
+      _id:            idempotencyKey,
+      idempotencyKey,
+      senderId:       user._id,
+      text,
+      timestamp:      new Date().toISOString(),
+      status:         'sending',
+    };
+
+    setMessages([optimistic]);
+
+    socketRef.current.emit('send_message', {
+      roomId:         roomIdRef.current,
+      senderId:       user._id,
+      text,
+      idempotencyKey,
+    });
+
+    const timer = setTimeout(() => {
+      setMessages(prev =>
+        prev.map(m =>
+          m.idempotencyKey === idempotencyKey ? { ...m, status: 'failed' } : m
+        )
+      );
+      ackTimers.current.delete(idempotencyKey);
+    }, ACK_TIMEOUT);
+
+    ackTimers.current.set(idempotencyKey, timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, isLoadingHistory, messages.length, urlListingId, urlListingTitle]);
+
   // ── Socket lifecycle ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isLoading) return;
@@ -286,7 +373,8 @@ export default function ChatPage() {
     setIsConnected(false);
     setCursor(null);
     setHasMore(false);
-    isFirstLoad.current = true;
+    isFirstLoad.current    = true;
+    contextSentRef.current = false;
 
     const socket = io(SOCKET_URL, {
       transports:           ['websocket'],
@@ -307,10 +395,7 @@ export default function ChatPage() {
     });
 
     socket.on('disconnect', () => setIsConnected(false));
-
-    socket.on('connect_error', (err) => {
-      console.error('[Socket] Connection error:', err.message);
-    });
+    socket.on('connect_error', (err) => console.error('[Socket] Connection error:', err.message));
 
     socket.on('message_ack', ({ idempotencyKey, _id, timestamp }: {
       idempotencyKey: string; _id: string; timestamp: string;
@@ -457,7 +542,7 @@ export default function ChatPage() {
     ackTimers.current.set(idempotencyKey, timer);
   };
 
-  // ── Retry failed message ───────────────────────────────────────────────────
+  // ── Retry ──────────────────────────────────────────────────────────────────
   const handleRetry = (msg: Message) => {
     if (!roomIdRef.current || !socketRef.current) return;
 
@@ -491,7 +576,6 @@ export default function ChatPage() {
     inputRef.current?.focus();
   };
 
-  // Use fetched name; fall back to first char of sellerId while loading
   const displayName   = sellerName || 'Loading…';
   const sellerInitial = sellerName
     ? sellerName.charAt(0).toUpperCase()
@@ -535,7 +619,6 @@ export default function ChatPage() {
           </div>
 
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* ← real seller name here */}
             <div style={{
               fontFamily: "'Fraunces', serif", fontSize: '17px', fontWeight: 600,
               color: G.charcoal, letterSpacing: '-0.01em',
@@ -611,6 +694,7 @@ export default function ChatPage() {
             </div>
           )}
 
+          {/* Empty state — only shown when no messages AND no context card pending */}
           {!isLoadingHistory && messages.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px 0 32px', animation: 'fadeIn 0.5s ease' }}>
               <div style={{
@@ -638,6 +722,7 @@ export default function ChatPage() {
             </div>
           )}
 
+          {/* Message groups */}
           {!isLoadingHistory && grouped.map(({ date, msgs }) => (
             <div key={date}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '24px 0 16px' }}>
@@ -653,8 +738,38 @@ export default function ChatPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {msgs.map((msg, idx) => {
+                  // ── Context card — rendered as a centred system message ──
+                  const ctx = parseContextMessage(msg.text);
+                  if (ctx) {
+                    return (
+                      <div key={msg.idempotencyKey} style={{ display: 'flex', justifyContent: 'center', margin: '4px 0' }}>
+                        <div className="context-card" style={{ maxWidth: '90%' }}>
+                          <Package style={{ width: '14px', height: '14px', color: G.green600, flexShrink: 0 }} />
+                          <span style={{ fontSize: '13px', color: G.ink, fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            Enquiry about:{' '}
+                            <span style={{ fontWeight: 700, color: G.green800 }}>{ctx.listingTitle}</span>
+                          </span>
+                          <Link to={`/item/${ctx.listingId}`} className="context-card-link">
+                            View →
+                          </Link>
+                          {/* Show sending/failed state for the optimistic card */}
+                          {msg.status === 'sending' && (
+                            <Clock style={{ width: '11px', height: '11px', color: G.muted, flexShrink: 0 }} />
+                          )}
+                          {msg.status === 'failed' && (
+                            <button className="retry-btn" style={{ marginLeft: '4px' }} onClick={() => handleRetry(msg)}>
+                              <RefreshCw style={{ width: '10px', height: '10px' }} /> Retry
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Regular chat bubble ──
                   const isOwn   = msg.senderId === user._id;
-                  const compact = idx > 0 && msgs[idx - 1].senderId === msg.senderId;
+                  const compact = idx > 0 && msgs[idx - 1].senderId === msg.senderId
+                    && !parseContextMessage(msgs[idx - 1].text);
 
                   return (
                     <div
