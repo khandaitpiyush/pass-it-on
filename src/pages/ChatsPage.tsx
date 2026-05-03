@@ -85,7 +85,7 @@ export default function ChatsPage() {
     if (!token) { setLoading(false); return; }
 
     // 1. Fetch all rooms
-    fetch('http://localhost:5000/api/messages', {
+    fetch(`${API}/messages`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => { if (!r.ok) throw new Error(String(r.status)); return r.json(); })

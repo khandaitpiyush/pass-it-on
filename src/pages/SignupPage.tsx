@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import axios from 'axios'
 
-const API = 'http://localhost:5000/api'
+import API from '../config';
 
 const BRANCHES = [
   'Computer Engineering', 'Information Technology',

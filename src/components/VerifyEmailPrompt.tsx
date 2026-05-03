@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import axios from "axios"
 import { useAuth } from "../context/AuthContext"
 
-const API = "http://localhost:5000/api/auth"
+import API from '../config';
 
 interface Props {
   // "gate"   → full-page block (used in AddListingPage, ChatPage)

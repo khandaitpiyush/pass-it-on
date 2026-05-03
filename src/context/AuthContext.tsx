@@ -47,7 +47,7 @@ export const useAuth = () => {
 
 /* ── HELPERS ── */
 
-const API = "http://localhost:5000/api/auth"
+import API from '../config';
 
 const setAxiosToken = (token: string) => {
   axios.defaults.headers.common["Authorization"] = `Bearer ${token}`

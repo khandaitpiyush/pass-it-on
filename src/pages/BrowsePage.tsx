@@ -7,7 +7,7 @@ import {
   ArrowLeft, Package, X, Leaf, AlertCircle,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api';
+import API from '../config';
 
 const G = {
   green900: '#0a2e14', green800: '#0f4a1f', green700: '#155f28',

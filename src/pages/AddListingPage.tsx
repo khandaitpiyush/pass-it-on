@@ -7,7 +7,7 @@ import {
   CheckCircle, ChevronRight, AlertCircle, Sparkles,
 } from "lucide-react";
 
-const API = "http://localhost:5000/api";
+import API from '../config';
 
 const G = {
   green900: "#0a2e14",

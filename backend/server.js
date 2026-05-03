@@ -18,6 +18,12 @@ import conversationRoutes from "./routes/conversationRoutes.js";
 
 dotenv.config();
 
+const ALLOWED_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://pass-it-on-piyush.netlify.app",
+];
+
 const startServer = async () => {
   try {
     await connectDB();
@@ -30,7 +36,7 @@ const startServer = async () => {
 
     const io = new Server(httpServer, {
       cors: {
-        origin:      ["http://localhost:5173", "http://localhost:3000"],
+        origin:      ALLOWED_ORIGINS,
         methods:     ["GET", "POST"],
         credentials: true,
       },
@@ -39,7 +45,7 @@ const startServer = async () => {
     /* ── Middleware ─────────────────────────────────────────────────────── */
 
     app.use(cors({
-      origin:      ["http://localhost:5173", "http://localhost:3000"],
+      origin:      ALLOWED_ORIGINS,
       credentials: true,
     }));
     app.use(express.json());

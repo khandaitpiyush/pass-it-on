@@ -1,3 +1,4 @@
+import API from '../config';
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -10,7 +11,7 @@ import { io, Socket } from 'socket.io-client';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const SOCKET_URL  = 'http://localhost:5000';
+const SOCKET_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5000';
 const PAGE_LIMIT  = 50;
 const ACK_TIMEOUT = 5000;
 
@@ -351,7 +352,7 @@ export default function ChatPage() {
     if (!sellerId) return;
     const token = localStorage.getItem('token');
     if (!token) return;
-    fetch(`http://localhost:5000/api/auth/users/${sellerId}`, {
+    fetch(`${API}/auth/users/${sellerId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.ok ? r.json() : null)
@@ -378,7 +379,7 @@ const fetchHistory = useCallback(async (beforeCursor?: string) => {
       if (beforeCursor) params.set('before', beforeCursor);
 
       const res = await fetch(
-        `http://localhost:5000/api/messages/${currentRoomId}?${params}`,
+        `${API}/messages/${currentRoomId}?${params}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
 

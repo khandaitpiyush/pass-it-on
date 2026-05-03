@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext"
 import { GoogleLogin } from "@react-oauth/google"
 import axios from "axios"
 
-const API = "http://localhost:5000/api/auth"
+import API from '../config';
 
 export default function LoginPage() {
   const navigate = useNavigate()

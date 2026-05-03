@@ -8,7 +8,7 @@ import {
   RefreshCw, AlertCircle, ChevronRight, Sparkles, Leaf,
 } from 'lucide-react';
 
-const API = 'http://localhost:5000/api/auth';
+import API from '../config';
 const RESEND_COOLDOWN = 60;
 
 const G = {
@@ -339,7 +339,7 @@ export default function ProfilePage() {
     (async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get('http://localhost:5000/api/listings', {
+        const res = await axios.get(`${API}/listings`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setListingCount(res.data.filter((l: any) =>

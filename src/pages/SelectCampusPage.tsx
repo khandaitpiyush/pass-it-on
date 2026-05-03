@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { useAuth } from "../context/AuthContext"
 
-const API = "http://localhost:5000/api/auth";
+import API from '../config';
 
 export default function SelectCampusPage() {
   const navigate = useNavigate();
