@@ -18,7 +18,7 @@ const router = express.Router();
 // ── Public routes ─────────────────────────────────────────────────────────────
 router.post('/signup',             signup);
 router.post('/login',              login);
-router.post('/google',             googleLogin);
+router.post('/google-login', googleLogin);
 router.get('/campuses',            getCampuses);
 router.post('/send-signup-otp',    sendSignupOtp);    // 👈 public — no protect
 router.post('/verify-signup-otp',  verifySignupOtp);  // 👈 public — no protect
