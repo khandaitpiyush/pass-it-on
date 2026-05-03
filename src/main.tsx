@@ -6,10 +6,10 @@ import { AuthProvider } from "./context/AuthContext"
 
 import "./index.css"
 
-const GOOGLE_CLIENT_ID ="940414213489-hih9o1qs80gpk9uhuipddds8ppcg4jn1.apps.googleusercontent.com"
+const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
 
 createRoot(document.getElementById("root")!).render(
-  <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+  <GoogleOAuthProvider clientId={clientId}>
     <AuthProvider>
       <App />
     </AuthProvider>
