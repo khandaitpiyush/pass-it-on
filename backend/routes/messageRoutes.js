@@ -2,6 +2,7 @@ import express from "express";
 import mongoose from "mongoose";
 import jwt from "jsonwebtoken";
 import Message from "../models/Message.js";
+import { analyzeMessage } from "../utils/scamDetector.js";
 
 const router = express.Router();
 
@@ -30,10 +31,11 @@ function isUserInRoom(roomId, userId) {
   return parts.length === 2 && parts.includes(userId);
 }
 
+// How many recent messages from the OTHER person to scan on history load.
+// Keep low to avoid Groq rate limits — 5 is enough for demo purposes.
+const SCAN_LAST_N = 5;
+
 // ─── GET /api/messages ────────────────────────────────────────────────────────
-// Returns all chat rooms the logged-in user participates in,
-// with the last message preview and the other participant's ID.
-// MUST be defined before /:roomId so Express doesn't treat "rooms" as a param.
 
 router.get("/", requireAuth, async (req, res) => {
   try {
@@ -85,6 +87,10 @@ router.get("/", requireAuth, async (req, res) => {
 //
 // Response:
 //   { messages, hasMore, nextCursor }
+//
+// On the first page load (no cursor), the last SCAN_LAST_N messages sent by
+// the OTHER person are scanned via Groq and returned with a scan field so the
+// buyer sees the warning banner even if they weren't online when it was sent.
 
 router.get("/:roomId", requireAuth, async (req, res) => {
   try {
@@ -99,6 +105,7 @@ router.get("/:roomId", requireAuth, async (req, res) => {
     }
 
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const isFirstPage = !req.query.before;
 
     const filter = { roomId };
 
@@ -109,11 +116,38 @@ router.get("/:roomId", requireAuth, async (req, res) => {
       filter._id = { $lt: new mongoose.Types.ObjectId(req.query.before) };
     }
 
-    // Fetch limit+1 to know if more pages exist — no extra COUNT query needed
+    // Fetch limit+1 to know if more pages exist
     const raw     = await Message.find(filter).sort({ _id: -1 }).limit(limit + 1).lean();
     const hasMore = raw.length > limit;
     const page    = (hasMore ? raw.slice(0, limit) : raw).reverse(); // oldest → newest
 
+    // ── Scan recent messages from the other person (first page only) ─────────
+    // Build a map of idempotencyKey → scanResult for messages we scan
+    const scanMap = new Map();
+
+    if (isFirstPage) {
+      // Get the last SCAN_LAST_N messages sent by the OTHER person
+      const othersMessages = page
+        .filter((m) => m.senderId !== req.userId)
+        .slice(-SCAN_LAST_N);
+
+      // Run scans in parallel — Groq is fast enough for 5 messages
+      await Promise.all(
+        othersMessages.map(async (m) => {
+          try {
+            const result = await analyzeMessage(m.text);
+            if (result.risk === "warn") {
+              scanMap.set(m.idempotencyKey, result);
+              console.log(`[SCAM] History scan WARN for "${m.text}":`, JSON.stringify(result));
+            }
+          } catch (err) {
+            console.error(`[SCAM] History scan error for msg ${m._id}:`, err.message);
+          }
+        })
+      );
+    }
+
+    // ── Shape response ────────────────────────────────────────────────────────
     const messages = page.map((m) => ({
       _id:            m._id.toString(),
       idempotencyKey: m.idempotencyKey,
@@ -121,6 +155,7 @@ router.get("/:roomId", requireAuth, async (req, res) => {
       senderId:       m.senderId,
       text:           m.text,
       timestamp:      m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
+      scan:           scanMap.get(m.idempotencyKey) ?? null,
     }));
 
     return res.json({

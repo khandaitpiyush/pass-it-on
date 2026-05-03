@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   ArrowLeft, Send, ShieldCheck, Package,
   Wifi, WifiOff, RefreshCw, ChevronUp, Clock,
+  AlertTriangle, X,
 } from 'lucide-react';
 import { io, Socket } from 'socket.io-client';
 
@@ -22,12 +23,22 @@ const G = {
   cream:    '#faf9f6', sand:     '#f5f0e8',
   charcoal: '#1a1a1a', ink:      '#2d2d2d', muted: '#6b6b6b',
   border:   '#e8e3d8',
-  red50:    '#fff1f2', red500:   '#ef4444', red100: '#fee2e2',
+  red50:    '#fff1f2', red500:   '#ef4444', red100: '#fee2e2', red800: '#991b1b',
+  red300:   '#fca5a5', red200:   '#fecaca',
+  amber50:  '#fffbeb', amber100: '#fef3c7', amber300: '#fcd34d',
+  amber500: '#f59e0b', amber800: '#92400e',
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type MessageStatus = 'sending' | 'sent' | 'failed';
+type ScamCategory  = 'payment' | 'off_platform' | 'urgency' | 'price_change';
+
+interface ScanResult {
+  risk:     'warn';
+  category: ScamCategory | null;
+  reason:   string | null;
+}
 
 interface Message {
   _id:            string;
@@ -36,7 +47,8 @@ interface Message {
   text:           string;
   timestamp:      string;
   status:         MessageStatus;
-  isContextCard?: boolean; // rendered differently — not a chat bubble
+  scan?:          ScanResult | null;
+  isContextCard?: boolean;
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -47,11 +59,13 @@ const chatStyles = `
 
   @keyframes fadeUp        { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)} }
   @keyframes fadeIn        { from{opacity:0} to{opacity:1} }
+  @keyframes slideDown     { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:translateY(0)} }
   @keyframes msgIn-right   { from{opacity:0;transform:translateX(12px) scale(0.97)} to{opacity:1;transform:translateX(0) scale(1)} }
   @keyframes msgIn-left    { from{opacity:0;transform:translateX(-12px) scale(0.97)} to{opacity:1;transform:translateX(0) scale(1)} }
   @keyframes pulse-dot     { 0%,100%{box-shadow:0 0 0 0 rgba(34,197,94,0.4)} 50%{box-shadow:0 0 0 6px rgba(34,197,94,0)} }
   @keyframes connectPulse  { 0%,100%{opacity:1} 50%{opacity:0.4} }
   @keyframes spin          { to{transform:rotate(360deg)} }
+  @keyframes scamBannerIn  { from{opacity:0;transform:translateY(-8px) scale(0.98)} to{opacity:1;transform:translateY(0) scale(1)} }
 
   .msg-own   { animation: msgIn-right 0.22s ease both; }
   .msg-other { animation: msgIn-left  0.22s ease both; }
@@ -143,6 +157,16 @@ const chatStyles = `
     transition:color 0.15s;
   }
   .context-card-link:hover { color:${G.green700}; }
+
+  .scam-banner {
+    animation: scamBannerIn 0.25s cubic-bezier(0.34,1.56,0.64,1) both;
+  }
+  .scam-dismiss-btn {
+    background:none; border:none; cursor:pointer; padding:2px;
+    border-radius:4px; display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; opacity:0.6; transition:opacity 0.15s, background 0.15s;
+  }
+  .scam-dismiss-btn:hover { opacity:1; background:rgba(0,0,0,0.06); }
 `;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -179,8 +203,6 @@ function groupByDate(messages: Message[]) {
   return groups;
 }
 
-// Detect context card messages saved in DB
-// Format: "LISTING_CONTEXT::<listingId>::<listingTitle>"
 const CONTEXT_PREFIX = 'LISTING_CONTEXT::';
 
 function parseContextMessage(text: string): { listingId: string; listingTitle: string } | null {
@@ -194,11 +216,93 @@ function buildContextText(listingId: string, listingTitle: string): string {
   return `${CONTEXT_PREFIX}${listingId}::${listingTitle}`;
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  payment:      '💳 Payment Risk',
+  off_platform: '📲 Off-Platform Request',
+  urgency:      '⚡ Pressure Tactics',
+  price_change: '💰 Price Manipulation',
+};
+
 const SUGGESTED = [
   'Is this still available? 👀',
   'Can you do a lower price?',
   'Where can we meet on campus?',
 ];
+
+// ─── ScamBanner Component ─────────────────────────────────────────────────────
+
+function ScamBanner({
+  scan,
+  onDismiss,
+}: {
+  scan: ScanResult | null;
+  onDismiss: () => void;
+}) {
+  if (!scan) return null;
+
+  const label = scan.category ? CATEGORY_LABELS[scan.category] : 'Suspicious Activity Detected';
+
+  return (
+    <div
+      className="scam-banner"
+      role="alert"
+      aria-live="assertive"
+      style={{
+        display:      'flex',
+        alignItems:   'flex-start',
+        gap:          '10px',
+        padding:      '12px 16px',
+        borderRadius: '12px',
+        border:       `1.5px solid ${G.amber300}`,
+        background:   G.amber50,
+        margin:       '0 0 8px',
+      }}
+    >
+      <span style={{ marginTop: '1px', flexShrink: 0 }}>
+        <AlertTriangle style={{ width: '16px', height: '16px', color: G.amber500 }} />
+      </span>
+
+      <div style={{ flex: 1 }}>
+        <p style={{
+          fontFamily:   "'DM Sans', sans-serif",
+          fontSize:     '13px',
+          fontWeight:   600,
+          color:        G.amber800,
+          marginBottom: scan.reason ? '2px' : '4px',
+        }}>
+          {label}
+        </p>
+        {scan.reason && (
+          <p style={{
+            fontFamily:   "'DM Sans', sans-serif",
+            fontSize:     '13px',
+            color:        G.amber800,
+            opacity:      0.85,
+            marginBottom: '4px',
+          }}>
+            {scan.reason}
+          </p>
+        )}
+        <p style={{
+          fontFamily: "'DM Sans', sans-serif",
+          fontSize:   '11px',
+          color:      G.amber800,
+          opacity:    0.65,
+        }}>
+          Always pay in person on campus. Never transfer money in advance to anyone.
+        </p>
+      </div>
+
+      <button
+        className="scam-dismiss-btn"
+        onClick={onDismiss}
+        aria-label="Dismiss warning"
+      >
+        <X style={{ width: '14px', height: '14px', color: G.amber800 }} />
+      </button>
+    </div>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -208,7 +312,6 @@ export default function ChatPage() {
   const { user, isLoading } = useAuth();
   const navigate            = useNavigate();
 
-  // Listing context from URL query params (set by ItemDetailPage)
   const urlListingId    = searchParams.get('listingId');
   const urlListingTitle = searchParams.get('listingTitle')
     ? decodeURIComponent(searchParams.get('listingTitle')!)
@@ -224,14 +327,19 @@ export default function ChatPage() {
   const [cursor, setCursor]                     = useState<string | null>(null);
   const [sellerName, setSellerName]             = useState<string>('');
 
+  // ── Scam banner state ──────────────────────────────────────────────────────
+  // null = no banner. Only ever set for the BUYER when they receive a warn message.
+  // Sender never sees this. Messages are never blocked — always delivered.
+  const [activeScan, setActiveScan] = useState<ScanResult | null>(null);
+
   // ── Refs ───────────────────────────────────────────────────────────────────
-  const messagesEndRef   = useRef<HTMLDivElement>(null);
-  const inputRef         = useRef<HTMLInputElement>(null);
-  const socketRef        = useRef<Socket | null>(null);
-  const scrollRef        = useRef<HTMLDivElement>(null);
-  const ackTimers        = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const isFirstLoad      = useRef(true);
-  const contextSentRef   = useRef(false); // prevents double-sending context msg
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef       = useRef<HTMLInputElement>(null);
+  const socketRef      = useRef<Socket | null>(null);
+  const scrollRef      = useRef<HTMLDivElement>(null);
+  const ackTimers      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const isFirstLoad    = useRef(true);
+  const contextSentRef = useRef(false);
 
   const roomIdRef   = useRef<string | null>(null);
   roomIdRef.current = (user?._id && sellerId)
@@ -252,7 +360,7 @@ export default function ChatPage() {
   }, [sellerId]);
 
   // ── Fetch history ──────────────────────────────────────────────────────────
-  const fetchHistory = useCallback(async (beforeCursor?: string) => {
+const fetchHistory = useCallback(async (beforeCursor?: string) => {
     const currentRoomId = roomIdRef.current;
     if (!currentRoomId) return;
 
@@ -264,7 +372,7 @@ export default function ChatPage() {
 
     try {
       const token = localStorage.getItem('token');
-      if (!token) { console.error('[Chat] fetchHistory: no auth token'); return; }
+      if (!token) return;
 
       const params = new URLSearchParams({ limit: String(PAGE_LIMIT) });
       if (beforeCursor) params.set('before', beforeCursor);
@@ -285,7 +393,16 @@ export default function ChatPage() {
         text:           m.text,
         timestamp:      m.timestamp,
         status:         'sent' as MessageStatus,
+        scan:           m.scan ?? null,  // ✅ carry scan result from backend
       }));
+
+      // ── Show banner for most recent warn in history (first load only) ──
+      if (!isMore) {
+        const lastWarn = [...shaped]
+          .reverse()
+          .find(m => m.senderId !== user?._id && m.scan?.risk === 'warn');
+        if (lastWarn?.scan) setActiveScan(lastWarn.scan);
+      }
 
       if (isMore) {
         setMessages(prev => [...shaped, ...prev]);
@@ -304,18 +421,16 @@ export default function ChatPage() {
     } finally {
       isMore ? setIsLoadingMore(false) : setIsLoadingHistory(false);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [user?._id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Auto-send listing context as first message ─────────────────────────────
-  // Only fires when: fresh chat (0 messages), opened from a listing,
-  // socket connected, history done loading. Saved to DB so seller sees it too.
+  // ── Auto-send listing context ──────────────────────────────────────────────
   useEffect(() => {
     if (!isConnected)           return;
     if (isLoadingHistory)       return;
-    if (messages.length > 0)    return; // chat already has history
-    if (!urlListingId)          return; // not opened from a listing
+    if (messages.length > 0)    return;
+    if (!urlListingId)          return;
     if (!urlListingTitle)       return;
-    if (contextSentRef.current) return; // already sent this session
+    if (contextSentRef.current) return;
     if (!roomIdRef.current)     return;
     if (!socketRef.current)     return;
     if (!user)                  return;
@@ -326,28 +441,21 @@ export default function ChatPage() {
     const idempotencyKey = genIdempotencyKey();
 
     const optimistic: Message = {
-      _id:            idempotencyKey,
-      idempotencyKey,
-      senderId:       user._id,
-      text,
-      timestamp:      new Date().toISOString(),
-      status:         'sending',
+      _id: idempotencyKey, idempotencyKey,
+      senderId: user._id, text,
+      timestamp: new Date().toISOString(),
+      status: 'sending', scan: null,
     };
 
     setMessages([optimistic]);
 
     socketRef.current.emit('send_message', {
-      roomId:         roomIdRef.current,
-      senderId:       user._id,
-      text,
-      idempotencyKey,
+      roomId: roomIdRef.current, senderId: user._id, text, idempotencyKey,
     });
 
     const timer = setTimeout(() => {
       setMessages(prev =>
-        prev.map(m =>
-          m.idempotencyKey === idempotencyKey ? { ...m, status: 'failed' } : m
-        )
+        prev.map(m => m.idempotencyKey === idempotencyKey ? { ...m, status: 'failed' } : m)
       );
       ackTimers.current.delete(idempotencyKey);
     }, ACK_TIMEOUT);
@@ -362,7 +470,7 @@ export default function ChatPage() {
     if (!user?._id || !sellerId || sellerId === user._id) return;
 
     const token = localStorage.getItem('token');
-    if (!token) { console.error('[Chat] Cannot open socket: no auth token'); return; }
+    if (!token) return;
 
     if (socketRef.current) {
       socketRef.current.disconnect();
@@ -370,6 +478,7 @@ export default function ChatPage() {
     }
 
     setMessages([]);
+    setActiveScan(null);
     setIsConnected(false);
     setCursor(null);
     setHasMore(false);
@@ -397,27 +506,37 @@ export default function ChatPage() {
     socket.on('disconnect', () => setIsConnected(false));
     socket.on('connect_error', (err) => console.error('[Socket] Connection error:', err.message));
 
+    // ── message_ack: sender's message was saved ──────────────────────────────
+    // Sender never sees any scan banner
     socket.on('message_ack', ({ idempotencyKey, _id, timestamp }: {
-      idempotencyKey: string; _id: string; timestamp: string;
+      idempotencyKey: string;
+      _id:            string;
+      timestamp:      string;
     }) => {
       const timer = ackTimers.current.get(idempotencyKey);
       if (timer) { clearTimeout(timer); ackTimers.current.delete(idempotencyKey); }
+
       setMessages(prev =>
         prev.map(m =>
           m.idempotencyKey === idempotencyKey
-            ? { ...m, _id, timestamp, status: 'sent' }
+            ? { ...m, _id, timestamp, status: 'sent', scan: null }
             : m
         )
       );
     });
 
-    socket.on('receive_message', (data: Omit<Message, 'status'>) => {
+    // ── receive_message: incoming message from the other person ─────────────
+    // scan is non-null only when risk === 'warn'
+    // Buyer sees the amber warning banner for suspicious messages
+    socket.on('receive_message', (data: Omit<Message, 'status'> & { scan: ScanResult | null }) => {
       if (data.senderId === user._id) return;
       setMessages(prev => {
         const exists = prev.some(m => m.idempotencyKey === data.idempotencyKey);
         if (exists) return prev;
         return [...prev, { ...data, status: 'sent' }];
       });
+
+      if (data.scan?.risk === 'warn') setActiveScan(data.scan);
     });
 
     return () => {
@@ -511,12 +630,10 @@ export default function ChatPage() {
     const idempotencyKey = genIdempotencyKey();
 
     const optimistic: Message = {
-      _id:            idempotencyKey,
-      idempotencyKey,
-      senderId:       user._id,
-      text,
-      timestamp:      new Date().toISOString(),
-      status:         'sending',
+      _id: idempotencyKey, idempotencyKey,
+      senderId: user._id, text,
+      timestamp: new Date().toISOString(),
+      status: 'sending', scan: null,
     };
 
     setMessages(prev => [...prev, optimistic]);
@@ -524,17 +641,12 @@ export default function ChatPage() {
     inputRef.current?.focus();
 
     socketRef.current.emit('send_message', {
-      roomId:         roomIdRef.current,
-      senderId:       user._id,
-      text,
-      idempotencyKey,
+      roomId: roomIdRef.current, senderId: user._id, text, idempotencyKey,
     });
 
     const timer = setTimeout(() => {
       setMessages(prev =>
-        prev.map(m =>
-          m.idempotencyKey === idempotencyKey ? { ...m, status: 'failed' } : m
-        )
+        prev.map(m => m.idempotencyKey === idempotencyKey ? { ...m, status: 'failed' } : m)
       );
       ackTimers.current.delete(idempotencyKey);
     }, ACK_TIMEOUT);
@@ -547,23 +659,17 @@ export default function ChatPage() {
     if (!roomIdRef.current || !socketRef.current) return;
 
     setMessages(prev =>
-      prev.map(m =>
-        m.idempotencyKey === msg.idempotencyKey ? { ...m, status: 'sending' } : m
-      )
+      prev.map(m => m.idempotencyKey === msg.idempotencyKey ? { ...m, status: 'sending' } : m)
     );
 
     socketRef.current.emit('send_message', {
-      roomId:         roomIdRef.current,
-      senderId:       user._id,
-      text:           msg.text,
-      idempotencyKey: msg.idempotencyKey,
+      roomId: roomIdRef.current, senderId: user._id,
+      text: msg.text, idempotencyKey: msg.idempotencyKey,
     });
 
     const timer = setTimeout(() => {
       setMessages(prev =>
-        prev.map(m =>
-          m.idempotencyKey === msg.idempotencyKey ? { ...m, status: 'failed' } : m
-        )
+        prev.map(m => m.idempotencyKey === msg.idempotencyKey ? { ...m, status: 'failed' } : m)
       );
       ackTimers.current.delete(msg.idempotencyKey);
     }, ACK_TIMEOUT);
@@ -694,7 +800,6 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Empty state — only shown when no messages AND no context card pending */}
           {!isLoadingHistory && messages.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px 0 32px', animation: 'fadeIn 0.5s ease' }}>
               <div style={{
@@ -722,7 +827,6 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Message groups */}
           {!isLoadingHistory && grouped.map(({ date, msgs }) => (
             <div key={date}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '24px 0 16px' }}>
@@ -738,7 +842,6 @@ export default function ChatPage() {
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {msgs.map((msg, idx) => {
-                  // ── Context card — rendered as a centred system message ──
                   const ctx = parseContextMessage(msg.text);
                   if (ctx) {
                     return (
@@ -749,10 +852,7 @@ export default function ChatPage() {
                             Enquiry about:{' '}
                             <span style={{ fontWeight: 700, color: G.green800 }}>{ctx.listingTitle}</span>
                           </span>
-                          <Link to={`/item/${ctx.listingId}`} className="context-card-link">
-                            View →
-                          </Link>
-                          {/* Show sending/failed state for the optimistic card */}
+                          <Link to={`/item/${ctx.listingId}`} className="context-card-link">View →</Link>
                           {msg.status === 'sending' && (
                             <Clock style={{ width: '11px', height: '11px', color: G.muted, flexShrink: 0 }} />
                           )}
@@ -766,7 +866,6 @@ export default function ChatPage() {
                     );
                   }
 
-                  // ── Regular chat bubble ──
                   const isOwn   = msg.senderId === user._id;
                   const compact = idx > 0 && msgs[idx - 1].senderId === msg.senderId
                     && !parseContextMessage(msgs[idx - 1].text);
@@ -856,16 +955,24 @@ export default function ChatPage() {
         </div>
       </div>
 
-      {/* ── SAFETY NOTICE ── */}
+      {/* ── SAFETY NOTICE + SCAM BANNER ── */}
       <div style={{ flexShrink: 0, background: G.green50, borderTop: `1px solid ${G.green100}` }}>
-        <div style={{
-          maxWidth: '760px', margin: '0 auto', padding: '9px 24px',
-          display: 'flex', alignItems: 'center', gap: '8px',
-        }}>
-          <ShieldCheck style={{ width: '13px', height: '13px', color: G.green600, flexShrink: 0 }} />
-          <p style={{ fontSize: '12px', color: G.green700, fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
-            Meet in public campus areas · Never share personal contact info
-          </p>
+        <div style={{ maxWidth: '760px', margin: '0 auto', padding: '8px 24px' }}>
+
+          {/* Amber warning banner — only visible to the buyer */}
+          {activeScan && (
+            <ScamBanner
+              scan={activeScan}
+              onDismiss={() => setActiveScan(null)}
+            />
+          )}
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '2px' }}>
+            <ShieldCheck style={{ width: '13px', height: '13px', color: G.green600, flexShrink: 0 }} />
+            <p style={{ fontSize: '12px', color: G.green700, fontFamily: "'DM Sans', sans-serif", fontWeight: 500 }}>
+              Meet in public campus areas · Never share personal contact info
+            </p>
+          </div>
         </div>
       </div>
 
