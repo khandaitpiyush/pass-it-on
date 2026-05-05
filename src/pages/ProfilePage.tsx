@@ -334,18 +334,23 @@ export default function ProfilePage() {
 
   useEffect(() => () => { if (timerRef.current) clearInterval(timerRef.current); }, []);
 
+  // ✅ FIXED: res.data is { listings, total, ... } not a plain array
   useEffect(() => {
     if (!user) return;
     (async () => {
       try {
         const token = localStorage.getItem('token');
-        const res = await axios.get(`${API}/listings`, {
+        const res = await axios.get(`${API}/listings?limit=50`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        setListingCount(res.data.filter((l: any) =>
-          l.seller._id === user._id || l.seller === user._id
-        ).length);
-      } catch { setListingCount(0); }
+        const listings = res.data.listings ?? [];
+        const myCount = listings.filter((l: any) =>
+          (l.seller?._id ?? l.seller)?.toString() === user._id?.toString()
+        ).length;
+        setListingCount(myCount);
+      } catch {
+        setListingCount(0);
+      }
     })();
   }, [user]);
 
@@ -383,7 +388,7 @@ export default function ProfilePage() {
     setError(''); setIsSending(true);
     try {
       const token = localStorage.getItem('token');
-      await axios.post(`${API}/send-otp`, { email: collegeEmail }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post(`${API}/auth/send-otp`, { email: collegeEmail }, { headers: { Authorization: `Bearer ${token}` } });
       setStep('otp'); setOtp(''); setSuccess(''); startTimer();
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Failed to send OTP. Try again.');
@@ -396,7 +401,7 @@ export default function ProfilePage() {
     setError(''); setIsVerifying(true);
     try {
       const token = localStorage.getItem('token');
-      const res = await axios.post(`${API}/verify-otp`,
+      const res = await axios.post(`${API}/auth/verify-otp`,
         { email: collegeEmail, otp: c },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -447,7 +452,6 @@ export default function ProfilePage() {
             }}>Profile</span>
           </div>
 
-          {/* Logo chip */}
           <div style={{
             display: 'flex', alignItems: 'center', gap: '6px',
             padding: '6px 12px', borderRadius: '100px',
@@ -465,13 +469,11 @@ export default function ProfilePage() {
 
         {/* ── PROFILE HERO CARD ── */}
         <div className="card profile-enter">
-          {/* Banner */}
           <div style={{
             height: '110px',
             background: `linear-gradient(135deg, ${G.green900} 0%, ${G.green700} 100%)`,
             position: 'relative', overflow: 'hidden',
           }}>
-            {/* Decorative circles */}
             <div style={{
               position: 'absolute', top: '-30px', right: '-30px',
               width: '120px', height: '120px', borderRadius: '50%',
@@ -482,19 +484,16 @@ export default function ProfilePage() {
               width: '80px', height: '80px', borderRadius: '50%',
               background: 'rgba(74,222,128,0.07)',
             }} />
-            {/* Leaf watermark */}
             <div style={{ position: 'absolute', top: '16px', left: '20px', opacity: 0.2 }}>
               <Leaf style={{ width: '28px', height: '28px', color: G.green400 }} />
             </div>
           </div>
 
           <div style={{ padding: '0 24px 28px' }}>
-            {/* Avatar row */}
             <div style={{
               marginTop: '-36px', marginBottom: '16px',
               display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between',
             }}>
-              {/* Avatar */}
               <div style={{ position: 'relative' }}>
                 <div style={{
                   width: '72px', height: '72px', borderRadius: '20px',
@@ -509,7 +508,6 @@ export default function ProfilePage() {
                     lineHeight: 1, userSelect: 'none',
                   }}>{userInitial}</span>
                 </div>
-                {/* Verification badge */}
                 <div style={{
                   position: 'absolute', bottom: '-4px', right: '-4px',
                   width: '26px', height: '26px', borderRadius: '8px',
@@ -524,14 +522,12 @@ export default function ProfilePage() {
                 </div>
               </div>
 
-              {/* Sign out */}
               <button className="signout-btn" onClick={() => { logout(); navigate('/'); }}>
                 <LogOut style={{ width: '14px', height: '14px' }} />
                 Sign out
               </button>
             </div>
 
-            {/* Name + email */}
             <h2 style={{
               fontFamily: "'Fraunces', serif",
               fontSize: '24px', fontWeight: 700,
@@ -540,7 +536,6 @@ export default function ProfilePage() {
             }}>{user.name}</h2>
             <p style={{ fontSize: '14px', color: G.muted, margin: '0 0 16px' }}>{user.email}</p>
 
-            {/* Badge chips */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
               {user.studentVerified ? (
                 <span style={{
@@ -656,10 +651,8 @@ export default function ProfilePage() {
         {/* ── OTP FLOW ── */}
         {!user.studentVerified && showOtpFlow && (
           <div className="card profile-enter-3" style={{ padding: '28px' }}>
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
               <div>
-                {/* Step indicator */}
                 <div style={{ display: 'flex', gap: '6px', marginBottom: '12px' }}>
                   {['email', 'otp'].map((s, i) => (
                     <div key={s} style={{
@@ -693,7 +686,6 @@ export default function ProfilePage() {
               }}>Cancel</button>
             </div>
 
-            {/* Step 1 — email */}
             {step === 'email' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
                 <div>
@@ -765,7 +757,6 @@ export default function ProfilePage() {
               </div>
             )}
 
-            {/* Step 2 — OTP */}
             {step === 'otp' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 {success ? (
