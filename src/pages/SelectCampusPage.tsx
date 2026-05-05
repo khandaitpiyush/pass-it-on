@@ -24,7 +24,7 @@ export default function SelectCampusPage() {
   useEffect(() => {
     const fetchCampuses = async () => {
       try {
-        const res = await axios.get(`${API_BASE}/api/campuses`);
+        const res = await axios.get(`${API_BASE}/campuses`);
         setCampuses(res.data);
       } catch (err: any) {
         console.error("Failed to fetch campuses:", err);
@@ -58,7 +58,7 @@ export default function SelectCampusPage() {
       }
 
       const res = await axios.post(
-        `${API_BASE}/api/auth/select-campus`,
+        `${API_BASE}/auth/select-campus`,
         { campusId: selectedCampus },
         {
           headers: {
