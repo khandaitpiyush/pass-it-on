@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { useAuth } from "../context/AuthContext"
+import { useAuth } from "../context/AuthContext";
 
-import API from '../config';
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
 export default function SelectCampusPage() {
   const navigate = useNavigate();
@@ -14,19 +14,17 @@ export default function SelectCampusPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [mounted, setMounted] = useState(false);
-  const { updateUser } = useAuth()
+  const { updateUser } = useAuth();
 
-  // Entrance animation trigger
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 50);
     return () => clearTimeout(t);
   }, []);
 
-  // Fetch available campuses from the backend
   useEffect(() => {
     const fetchCampuses = async () => {
       try {
-        const res = await axios.get(`${API}/campuses`);
+        const res = await axios.get(`${API_BASE}/api/campuses`);
         setCampuses(res.data);
       } catch (err: any) {
         console.error("Failed to fetch campuses:", err);
@@ -39,50 +37,49 @@ export default function SelectCampusPage() {
     fetchCampuses();
   }, []);
 
- const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
-  setError("");
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
 
-  if (!selectedCampus) {
-    setError("Please select a campus to continue.");
-    return;
-  }
-
-  setIsLoading(true);
-
-  try {
-    const token = localStorage.getItem("token");
-
-    if (!token) {
-      setError("Session expired. Please login again.");
-      navigate("/login");
+    if (!selectedCampus) {
+      setError("Please select a campus to continue.");
       return;
     }
 
-    const res = await axios.post(
-      `${API}/select-campus`,
-      { campusId: selectedCampus },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+    setIsLoading(true);
+
+    try {
+      const token = localStorage.getItem("token");
+
+      if (!token) {
+        setError("Session expired. Please login again.");
+        navigate("/login");
+        return;
       }
-    );
 
-    // Update the FULL user object from the response, not just campusId
-    if (res.data.user) {
-      updateUser(res.data.user)  // ← was: updateUser({ campusId: res.data.user.campusId })
+      const res = await axios.post(
+        `${API_BASE}/api/auth/select-campus`,
+        { campusId: selectedCampus },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (res.data.user) {
+        updateUser(res.data.user);
+      }
+
+      navigate("/dashboard");
+
+    } catch (err: any) {
+      console.error("Campus selection error:", err);
+      setError(err?.response?.data?.message || "Failed to assign campus. Please try again.");
+    } finally {
+      setIsLoading(false);
     }
-
-    navigate("/dashboard");
-
-  } catch (err: any) {
-    console.error("Campus selection error:", err);
-    setError(err?.response?.data?.message || "Failed to assign campus. Please try again.");
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
   return (
     <>
@@ -314,7 +311,7 @@ export default function SelectCampusPage() {
         <div className="bg-blob blob-bl" />
 
         <div className={`campus-card${mounted ? " mounted" : ""}`}>
-          
+
           <div className="brand-header">
             <div className="brand-icon">🌿</div>
             <span className="brand-name">PassItOn</span>
@@ -339,7 +336,7 @@ export default function SelectCampusPage() {
               <label className="field-label" htmlFor="campus-select">
                 Your Campus
               </label>
-              
+
               <div className="select-wrap">
                 <select
                   id="campus-select"
@@ -351,14 +348,14 @@ export default function SelectCampusPage() {
                   <option value="" disabled>
                     {isFetching ? "Loading campuses..." : "Select from dropdown"}
                   </option>
-                  
+
                   {campuses.map((campus) => (
                     <option key={campus._id} value={campus._id}>
                       {campus.name}
                     </option>
                   ))}
                 </select>
-                
+
                 <span className="select-icon">
                   {isFetching ? (
                     <span className="spinner" style={{ borderColor: "rgba(0,0,0,0.1)", borderTopColor: "#1a3a2a" }} />
@@ -378,7 +375,7 @@ export default function SelectCampusPage() {
           </form>
 
           <div className="notice-text">
-            Note: Standard accounts allow you to browse and buy. 
+            Note: Standard accounts allow you to browse and buy.
             <br />
             <span>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
