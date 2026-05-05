@@ -12,7 +12,7 @@ export interface User {
   year?: string
   campusId?: string
   emailVerified: boolean
-  studentVerified: boolean  // ← added
+  studentVerified: boolean
   googleId?: string
 }
 
@@ -28,9 +28,9 @@ interface SignupData {
 interface AuthContextType {
   user: User | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<any>  // ← returns data now
+  login: (email: string, password: string) => Promise<any>
   loginWithGoogle: (user: User, token: string) => void
-  signup: (userData: SignupData) => Promise<any>            // ← returns data now
+  signup: (userData: SignupData) => Promise<any>
   logout: () => void
   updateUser: (updates: Partial<User>) => void
 }
@@ -88,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true)
 
     try {
-      const res = await axios.post(`${API}/login`, { email, password })
+      const res = await axios.post(`${API}/auth/login`, { email, password })
       const { user, token } = res.data
 
       setUser(user)
@@ -96,7 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem("token", token)
       setAxiosToken(token)
 
-      return res.data  // ← LoginPage needs this to check needsCampusSelection
+      return res.data
 
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Login failed")
@@ -110,7 +110,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(user)
     localStorage.setItem("user", JSON.stringify(user))
     localStorage.setItem("token", token)
-    setAxiosToken(token)  // ← was already here, but now confirmed runs BEFORE navigate
+    setAxiosToken(token)
   }
 
   /* ---------- SIGNUP ---------- */
@@ -118,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true)
 
     try {
-      const res = await axios.post(`${API}/signup`, userData)
+      const res = await axios.post(`${API}/auth/signup`, userData)
       const { user, token } = res.data
 
       setUser(user)
@@ -126,7 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem("token", token)
       setAxiosToken(token)
 
-      return res.data  // ← return so SignupPage can also check needsCampusSelection
+      return res.data
 
     } catch (error: any) {
       throw new Error(error.response?.data?.message || "Signup failed")
