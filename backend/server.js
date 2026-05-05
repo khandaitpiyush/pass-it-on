@@ -7,7 +7,6 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 
-
 import connectDB from "./config/db.js";
 
 // Routes
@@ -62,6 +61,16 @@ function socketAuthMiddleware(socket, next) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Allowed Origins                                                             */
+/* -------------------------------------------------------------------------- */
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://pass-it-on-piyush.netlify.app",
+];
+
+/* -------------------------------------------------------------------------- */
 /* Server                                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -77,7 +86,7 @@ const startServer = async () => {
 
     const io = new Server(httpServer, {
       cors: {
-        origin: ["http://localhost:5173", "http://localhost:3000"],
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true,
       },
@@ -86,7 +95,7 @@ const startServer = async () => {
     /* ------------------------------- Middleware ------------------------------ */
 
     app.use(cors({
-      origin: ["http://localhost:5173", "http://localhost:3000"],
+      origin: allowedOrigins,
       credentials: true,
     }));
 
@@ -120,7 +129,6 @@ const startServer = async () => {
           return;
         }
 
-        // leave previous rooms
         for (const room of socket.rooms) {
           if (room !== socket.id) socket.leave(room);
         }
@@ -154,7 +162,6 @@ const startServer = async () => {
         }
 
         try {
-          // Save message (idempotent)
           const saved = await Message.findOneAndUpdate(
             { idempotencyKey },
             {
@@ -171,7 +178,6 @@ const startServer = async () => {
 
           const participants = roomId.split("_");
 
-          // Update conversation
           await Conversation.findOneAndUpdate(
             { roomId },
             {
@@ -197,14 +203,12 @@ const startServer = async () => {
             timestamp: saved.timestamp.toISOString(),
           };
 
-          // ACK to sender
           socket.emit("message_ack", {
             _id: payload._id,
             idempotencyKey: payload.idempotencyKey,
             timestamp: payload.timestamp,
           });
 
-          // Send to others
           socket.to(roomId).emit("receive_message", payload);
 
         } catch (err) {
