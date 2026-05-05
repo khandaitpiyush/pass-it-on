@@ -53,9 +53,9 @@ export default function LoginPage() {
   const handleGoogleSuccess = async (credentialResponse: any) => {
     setError("")
     try {
-      const res = await axios.post(`${API}/google-login`, {
-        token: credentialResponse.credential,
-      })
+      const res = await axios.post(`${API}/google`, {
+  token: credentialResponse.credential,
+})
       
       // Extract the new flag from our updated backend
       const { user, token, needsCampusSelection } = res.data
