@@ -1,3 +1,4 @@
+import API from '../config';
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -97,7 +98,7 @@ export default function ChatsPage() {
           rawRooms.map(async (room: Omit<Room, 'otherName'>) => {
             try {
               const res = await fetch(
-                `http://localhost:5000/api/auth/users/${room.otherId}`,
+                `${API}/auth/users/${room.otherId}`,
                 { headers: { Authorization: `Bearer ${token}` } }
               );
               const profile = res.ok ? await res.json() : null;
